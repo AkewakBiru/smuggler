@@ -169,7 +169,6 @@ func TestRoundTripPOST(t *testing.T) {
 				if want != kv.Key {
 					t.Errorf("wanted: %s, Got: %s", want, kv.Key)
 				}
-				// log.Printf("Request To:%s, Method: %s, Status: %s\n", Case.host, Case.method, resp.Status)
 			}
 		})
 	}
@@ -245,8 +244,6 @@ func TestRoundTripOPTIONS(t *testing.T) {
 			if resp.StatusCode != Case.want {
 				t.Errorf("Wanted: %d, Got: %d", Case.want, resp.StatusCode)
 			}
-			// respH, _ := httputil.DumpResponse(resp, false)
-			// fmt.Println(string(respH))
 		})
 	}
 }

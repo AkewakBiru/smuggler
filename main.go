@@ -52,8 +52,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Println(glob.ExitEarly, glob.Method)
-
 	glob.Header = make(map[string]string)
 	parseURI()
 
