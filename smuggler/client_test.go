@@ -17,7 +17,7 @@ type test struct {
 	scheme string
 	path   string
 	body   string
-	hdrs   *map[string]string
+	hdrs   map[string]string
 
 	want any
 }
@@ -41,7 +41,7 @@ func BuildReqLine(_test *test) *smuggler.Request {
 
 	if _test.hdrs != nil {
 		headers := make(map[string]string)
-		for k, v := range *_test.hdrs {
+		for k, v := range _test.hdrs {
 			headers[k] = v
 		}
 		payload.Header = headers
@@ -49,13 +49,13 @@ func BuildReqLine(_test *test) *smuggler.Request {
 	return &smuggler.Request{Payload: &payload, Url: &url}
 }
 
-func buildReqHdr(lst []string) *map[string]string {
+func buildReqHdr(lst []string) map[string]string {
 	res := make(map[string]string)
 
 	for i := 0; i < len(lst); i += 2 {
 		res[lst[i]] = lst[i+1]
 	}
-	return &res
+	return res
 }
 
 func TestRoundTripGET(t *testing.T) {
@@ -81,7 +81,7 @@ func TestRoundTripGET(t *testing.T) {
 			host:   "www.instagram.com",
 			scheme: "https",
 			path:   "/",
-			hdrs:   buildReqHdr([]string{"Host", "www.google.com", "User-Agent", "my-agent"}),
+			hdrs:   buildReqHdr([]string{"Host", "www.instagram.com", "User-Agent", "my-agent"}),
 			want:   http.StatusOK,
 		},
 	}
