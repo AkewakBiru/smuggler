@@ -10,8 +10,10 @@ import (
 	"os"
 	"smuggler/smuggler"
 	"strings"
+	"time"
 )
 
+// can i get a list of paths to test for smuggling for each path, because if i do this for a single, it will be
 var glob smuggler.Glob
 
 func init() {
@@ -69,7 +71,7 @@ func main() {
 		glob.URL.Host = strings.Split(glob.URL.Host, ":")[0] + ":" + *port
 	}
 	glob.ExitEarly = *exitOnSuccess
-	glob.Timeout = *timeout
+	glob.Timeout = time.Duration(*timeout) * time.Second
 	glob.File = *file
 
 	glob.Header = make(map[string]string)
@@ -90,6 +92,9 @@ func parseURI(uri string) error {
 	if glob.URL.Scheme == "" && glob.URL.Port() == "" {
 		return errors.New("invalid URL: Empty Scheme & Port")
 	}
+	if glob.URL.Scheme != "https" && glob.URL.Scheme != "http" {
+		return fmt.Errorf("unsupported scheme: %s: valid schemes: http,https", glob.URL.Scheme)
+	}
 	if glob.URL.Port() == "" {
 		if glob.URL.Scheme == "http" {
 			glob.URL.Host = glob.URL.Host + ":80"
@@ -97,8 +102,6 @@ func parseURI(uri string) error {
 			glob.URL.Host = glob.URL.Host + ":443"
 		}
 	}
-	fmt.Println(glob.URL.Host)
-	fmt.Println(glob.URL.Scheme)
 
 	if glob.URL.Path == "/" {
 		glob.URL.Path = "/"
@@ -110,3 +113,5 @@ func parseURI(uri string) error {
 	}
 	return nil
 }
+
+// CL.0 -> Front-End takes all the content, but backend takes none (weird behaviour)
