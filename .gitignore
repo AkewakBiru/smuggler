@@ -1,5 +1,3 @@
-./payloads
-.dist
-.vscode
-./smuggler/a.go
-./smuggler/a_test.go
+payloads
+.dist/
+.vscode/

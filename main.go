@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -20,6 +21,7 @@ func init() {
 		h += "smuggler [Options]\n\n"
 		h += "-u, --url destination server address to test\n"
 		h += "-s, --scheme scheme for the url (use http|https)\n"
+		h += "-f, --test type of test (basic, double, exhaustive)\n"
 		h += "-e, --exit-early exit as soon as a Desync is detected"
 		fmt.Fprintln(os.Stderr, h)
 	}
@@ -34,55 +36,77 @@ func main() {
 	flag.StringVar(uri, "u", "", "-u \"https://www.google.com\"")
 	method := flag.String("method", "POST", "--method \"GET\"")
 	flag.StringVar(method, "X", "POST", "-X \"GET\"")
-	port := flag.Int("port", 443, "--port 443")
-	flag.IntVar(port, "p", 443, "-p 443")
+	port := flag.String("port", "", "--port 443")
+	flag.StringVar(port, "p", "", "-p 443")
 	exitOnSuccess := flag.Bool("exit-early", false, "--exit-early false")
 	flag.BoolVar(exitOnSuccess, "e", false, "--exit-early false")
 	timeout := flag.Int("time", 5, "--timeout 5")
 	flag.IntVar(timeout, "t", 5, "-t 5")
+	file := flag.String("test", "basic", "--test \"basic\"")
+	flag.StringVar(file, "f", "basic", "-f \"basic\"")
 	flag.Parse()
 
-	glob.Uri = *uri
-	glob.Method = *method
-	glob.Port = *port
-	glob.ExitEarly = *exitOnSuccess
-	glob.Timeout = *timeout
-
-	if glob.Uri == "" {
-		os.Exit(1)
-	}
-
-	glob.Header = make(map[string]string)
-	parseURI()
-
-	var desyncr smuggler.DesyncerImpl
-	desyncr.GetCookies(&glob)
-	smuggler.PopPayload()
-	desyncr.Start()
-}
-
-func parseURI() {
-	if !strings.HasPrefix(glob.Uri, "http:") && !strings.HasPrefix(glob.Uri, "https:") {
-		if glob.Port == 443 {
-			glob.Uri = "https://" + glob.Uri
-			glob.Scheme = "https"
-		} else if glob.Port == 80 {
-			glob.Uri = "http://" + glob.Uri
-			glob.Scheme = "http"
+	fl := false
+	for _, f := range []string{"basic", "double", "exhaustive"} {
+		if f == *file {
+			fl = true
+			break
 		}
 	}
+	if !fl {
+		log.Fatal("Invalid test type: Available options: [basic, double, exhaustive]")
+	}
+	if *uri == "" {
+		log.Fatal("Invalid URI: Empty URI")
+	}
 
-	u, err := url.Parse(glob.Uri)
-	if err != nil {
+	if err := parseURI(*uri); err != nil {
 		log.Fatal(err)
 	}
+	glob.Method = strings.ToUpper(strings.TrimSpace(*method))
+	// given port overrides scheme port
+	if *port != "" {
+		glob.URL.Host = strings.Split(glob.URL.Host, ":")[0] + ":" + *port
+	}
+	glob.ExitEarly = *exitOnSuccess
+	glob.Timeout = *timeout
+	glob.File = *file
 
-	glob.Url = u
-	glob.Method = strings.ToUpper(glob.Method)
-	if len(u.Path) == 0 {
-		glob.Url.Path = "/"
+	glob.Header = make(map[string]string)
+
+	var desyncr smuggler.DesyncerImpl
+	desyncr.GetCookie(&glob)
+	if err := desyncr.Start(); err != nil {
+		log.Fatalln(err)
 	}
-	if len(glob.Url.User.Username()) > 0 {
-		glob.Header["Authorization"] = fmt.Sprintf("Basic %s", base64.StdEncoding.EncodeToString([]byte(glob.Url.User.String())))
+}
+
+func parseURI(uri string) error {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return err
 	}
+	glob.URL = u
+	if glob.URL.Scheme == "" && glob.URL.Port() == "" {
+		return errors.New("invalid URL: Empty Scheme & Port")
+	}
+	if glob.URL.Port() == "" {
+		if glob.URL.Scheme == "http" {
+			glob.URL.Host = glob.URL.Host + ":80"
+		} else if glob.URL.Scheme == "https" {
+			glob.URL.Host = glob.URL.Host + ":443"
+		}
+	}
+	fmt.Println(glob.URL.Host)
+	fmt.Println(glob.URL.Scheme)
+
+	if glob.URL.Path == "/" {
+		glob.URL.Path = "/"
+	}
+
+	if len(glob.URL.User.Username()) > 0 {
+		glob.Header["Authorization"] = fmt.Sprintf("Basic %s",
+			base64.StdEncoding.EncodeToString([]byte(glob.URL.User.String())))
+	}
+	return nil
 }

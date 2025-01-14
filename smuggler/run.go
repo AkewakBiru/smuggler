@@ -1,13 +1,14 @@
 package smuggler
 
 import (
+	"bufio"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math"
 	"math/rand"
-	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -16,31 +17,26 @@ import (
 
 type Glob struct {
 	Cookie    string
-	Uri       string
 	Method    string
-	Port      int
-	Url       *url.URL
-	Scheme    string
+	URL       *url.URL
 	Header    map[string]string
 	Attempts  int
 	ExitEarly bool
 	Timeout   int
+	File      string
 }
 
-var (
-	payloads map[string]Payload
-	glob     Glob
-)
+var glob Glob
 
 // the idea is to disrupt the way http request are dealt with (typically in FIFO), if a user
 // sneaks in a request in another request, the synchronization will be affected resulting in
 // weird behaviours (users receiving response meant to be received by other users)
 type Desyncer interface {
 	test(*Payload) (int, []byte, Payload, error)
-	testClte()
-	testTecl(int, *Payload) (int, []byte, Payload, error) // returns 1 if connection timedout, 0 if normal response, 2 if disconnected before timeout
-	GetCookies() (string, error)
-	start()
+	testCLTE()
+	testTECL(int, *Payload) (int, []byte, Payload, error) // returns 1 if connection timedout, 0 if normal response,
+	GetCookie() error                                     // 2 if disconnected before timeout
+	Start() error
 	execTest(string, Payload)
 }
 
@@ -48,55 +44,12 @@ type DesyncerImpl struct {
 	Desyncer
 }
 
-func deepcopy(src *Payload) Payload {
-	dst := Payload{}
-
-	dst.Body = (*src).Body
-	dst.Cl = (*src).Cl
-	dst.Header = make(map[string]string)
-	for k, v := range src.Header {
-		dst.Header[k] = v
-	}
-	dst.Host = (*src).Host
-	dst.Port = (*src).Port
-	dst.ReqLine = ReqLine{
-		Method:   (*src).ReqLine.Method,
-		Path:     (*src).ReqLine.Path,
-		Fragment: (*src).ReqLine.Fragment,
-		Query:    (*src).ReqLine.Query,
-		Version:  (*src).ReqLine.Version,
-	}
-	dst.Cl = (*src).Cl
-	return dst
-}
-
-func PopPayload() {
-	payloads = make(map[string]Payload)
-	payloads["n"] = renderTemplate("Transfer-Encoding", "chunked")
-	payloads["ps"] = renderTemplate(" Transfer-Encoding", " chunked")
-	payloads["pt1"] = renderTemplate("Transfer-Encoding", "\tchunked")
-	payloads["pt2"] = renderTemplate("Transfer-Encoding\t", "\tchunked")
-	payloads["tse"] = renderTemplate("Transfer-Encoding ", " chunked")
-	lst := []byte{0x1, 0x4, 0x8, 0x9, 0xa, 0xb, 0xc, 0xd, 0x1F, 0x20, 0x7f, 0xA0, 0xFF}
-	for _, b := range lst {
-		payloads[fmt.Sprintf("ms-%02x", b)] = renderTemplate("Transfer-Encoding", fmt.Sprintf("%cchunked", b))
-		payloads[fmt.Sprintf("ts-%02x", b)] = renderTemplate(fmt.Sprintf("Transfer-Encoding%c", b), " chunked")
-		payloads[fmt.Sprintf("ps-%02x", b)] = renderTemplate(fmt.Sprintf("%cTransfer-Encoding", b), " chunked")
-		payloads[fmt.Sprintf("es-%02x", b)] = renderTemplate("Transfer-Encoding", fmt.Sprintf(" chunked%c", b))
-		payloads[fmt.Sprintf("xp-%02x", b)] = renderTemplate(fmt.Sprintf("X: X%cTransfer-Encoding", b), " chunked")
-		payloads[fmt.Sprintf("ex-%02x", b)] = renderTemplate("Transfer-Encoding", fmt.Sprintf(" chunked%cX: X", b))
-		payloads[fmt.Sprintf("rx-%02x", b)] = renderTemplate(fmt.Sprintf("X: X\r%cTransfer-Encoding", b), " chunked")
-		payloads[fmt.Sprintf("xn-%02x", b)] = renderTemplate(fmt.Sprintf("X: X%c\nTransfer-Encoding:", b), " chunked")
-		payloads[fmt.Sprintf("erx-%02x", b)] = renderTemplate("Transfer-Encoding", fmt.Sprintf(" chunked\r%cX: X", b))
-		payloads[fmt.Sprintf("exn-%02x", b)] = renderTemplate("Transfer-Encoding", fmt.Sprintf(" chunked%c\nX: X", b))
-	}
-}
-
-func renderTemplate(k, v string) Payload {
-	payload := Payload{}
+// builds a new payload
+func NewPl(pl string) *Payload {
+	payload := Payload{HdrPl: pl}
 	payload.ReqLine = ReqLine{
-		Method:  strings.ToUpper(strings.TrimSpace(glob.Method)),
-		Path:    glob.Url.Path,
+		Method:  glob.Method,
+		Path:    glob.URL.Path,
 		Version: "HTTP/1.1",
 		Query:   fmt.Sprintf("q=%d", rand.Int63n(math.MaxInt64))}
 
@@ -104,23 +57,22 @@ func renderTemplate(k, v string) Payload {
 	headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
 	headers["Connection"] = "Keep-alive"
 	headers["Content-Type"] = "application/x-www-form-urlencoded"
-	headers["Host"] = glob.Url.Host
+	headers["Host"] = glob.URL.Host
 
-	headers[k] = v
 	payload.Header = headers
 	for k, v := range glob.Header {
 		payload.Header[k] = v
 	}
 	payload.Header["Cookie"] = glob.Cookie
-	return payload
+	return &payload
 }
 
-func (DesyncerImpl) GetCookies(g *Glob) (string, error) {
+func (DesyncerImpl) GetCookie(g *Glob) error {
 	glob = *g
 	t := Transport{}
 
 	headers := make(map[string]string)
-	headers["Host"] = glob.Url.Host
+	headers["Host"] = glob.URL.Host
 	headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
 	headers["Cache-Control"] = "no-store"
 	headers["Pragma"] = "no-cache"
@@ -129,34 +81,47 @@ func (DesyncerImpl) GetCookies(g *Glob) (string, error) {
 	for k, v := range glob.Header {
 		headers[k] = v
 	}
-	payload := Payload{Host: glob.Url.Host, Port: glob.Port, Header: headers,
+	payload := Payload{Host: glob.URL.Host, Port: glob.URL.Port(), Header: headers,
 		ReqLine: ReqLine{Method: "HEAD",
-			Path: glob.Url.Path, Query: fmt.Sprint("nocache=", rand.Int63n(math.MaxInt64)), Version: "HTTP/1.1"}}
+			Path: glob.URL.Path, Query: fmt.Sprint("nocache=", rand.Int63n(math.MaxInt64)), Version: "HTTP/1.1"}}
 
-	resp, err := t.RoundTrip(&Request{Payload: &payload, Url: glob.Url})
+	resp, err := t.RoundTrip(&Request{Payload: &payload, Url: glob.URL})
 	if err != nil {
-		return "", err
+		return err
 	}
 	resp.Body.Close()
 
-	if v := getCookieVal(resp.Header, "Set-Cookie"); len(v) > 0 {
-		cookies := make([]string, len(v))
-		for i, c := range v {
-			if idx := strings.Index(c, ";"); idx != -1 {
-				cookies[i] = strings.TrimSpace(c[:idx])
-			}
-		}
-		glob.Cookie = strings.Join(cookies, "; ")
+	var hdr []string
+	hdr = resp.Header.Values("Set-Cookie")
+	if hdr == nil {
+		hdr = resp.Header.Values("set-cookie")
 	}
-	return glob.Cookie, nil
+	var res []string = make([]string, len(hdr))
+	for i, v := range hdr {
+		if idx := strings.Index(v, ";"); idx != -1 {
+			res[i] = v[:idx]
+		}
+	}
+	glob.Cookie = strings.Join(res, "; ")
+	return nil
 }
 
-func getCookieVal(hdr http.Header, key string) []string {
-	if v := hdr.Values(key); len(v) > 0 {
-		return v
+func (d DesyncerImpl) Start() error {
+	f, err := os.OpenFile("smuggler/tests/"+glob.File, os.O_RDONLY, 0644)
+	if err != nil {
+		return err
 	}
-	if v := hdr.Values(strings.ToLower(key)); len(v) > 0 {
-		return v
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		tmp, err := base64.StdEncoding.DecodeString(line)
+		if err != nil {
+			return err
+		}
+		payload := NewPl(string(tmp))
+		d.execTest(payload)
 	}
 	return nil
 }
@@ -164,9 +129,13 @@ func getCookieVal(hdr http.Header, key string) []string {
 func (d DesyncerImpl) test(p *Payload) (int, []byte, *Payload, error) {
 	t := Transport{}
 	start := time.Now()
-	resp, err := t.RoundTrip(&Request{Url: glob.Url, Payload: p})
+	resp, err := t.RoundTrip(&Request{Url: glob.URL, Payload: p})
 	if err != nil {
-		return int(resp.ContentLength), nil, p, err
+		if resp != nil {
+			return int(resp.ContentLength), nil, p, err
+		} else {
+			return -1, nil, p, err
+		}
 	}
 	diff := time.Since(start)
 
@@ -188,62 +157,61 @@ func (d DesyncerImpl) test(p *Payload) (int, []byte, *Payload, error) {
 	return 0, append([]byte(headers), sample...), p, nil // normal response
 }
 
-func (d DesyncerImpl) testTecl(ptype int, p *Payload) (int, []byte, *Payload, error) {
-	_payload := deepcopy(p)
+func (d DesyncerImpl) testTECL(ptype int, p *Payload) (int, []byte, *Payload, error) {
 	if ptype == 0 {
-		_payload.Cl = 6
+		p.Cl = 6
 	} else {
-		_payload.Cl = 5
+		p.Cl = 5
 	}
-	_payload.Body = "0\r\n\r\nG"
-	return d.test(&_payload)
+	p.Body = "0\r\n\r\nG"
+	return d.test(p)
 }
 
-func (d DesyncerImpl) testClte(ptype int, p *Payload) (int, []byte, *Payload, error) {
-	_payload := deepcopy(p)
+func (d DesyncerImpl) testCLTE(ptype int, p *Payload) (int, []byte, *Payload, error) {
 	if ptype == 0 {
-		_payload.Cl = 4
+		p.Cl = 4
 	} else {
-		_payload.Cl = 11
+		p.Cl = 11
 	}
-	_payload.Body = fmt.Sprintf("%X\r\nG\r\n0\r\n\r\n", 1) // if all the payload is sent, it should be a valid request
-	return d.test(&_payload)                               //because encoding is terminated with a chunk of 0 value
+	p.Body = fmt.Sprintf("%X\r\nG\r\n0\r\n\r\n", 1) // if all the payload is sent, it should be a valid request
+	return d.test(p)                                //because encoding is terminated with a chunk of 0 value
 }
 
-func (d DesyncerImpl) execTest(k string, v *Payload) {
+func (d DesyncerImpl) execTest(v *Payload) {
 	startTime := time.Now()
-	log.Printf("%s \ttesting tecl...\n", k)
-	teclRet, teclRes, teclPayload, err := d.testTecl(0, v)
+	log.Print("Testing TECL...")
+	teclRet, teclRes, teclPayload, err := d.testTECL(0, v)
 	if teclRet == -1 {
-		fmt.Fprintln(os.Stderr, err)
+		log.Print(err)
 		return
 	}
 
 	teclTime := time.Since(startTime)
 
-	log.Printf("%s \ttesting clte...\n", k)
+	log.Print("Testing CLTE...")
 	startTime = time.Now()
-	clteRet, clteRes, cltePayload, err := d.testClte(0, v)
+	clteRet, clteRes, cltePayload, err := d.testCLTE(0, v)
 	if clteRet == -1 {
-		fmt.Fprintln(os.Stderr, err)
+		log.Print(err)
 		return
 	}
 	clteTime := time.Since(startTime)
 
 	if clteRet == 1 {
-		clteRet2, _, _, err := d.testClte(1, v)
+		clteRet2, _, _, err := d.testCLTE(1, v)
 		if clteRet2 == -1 {
-			fmt.Fprintln(os.Stderr, err)
+			log.Print(err)
 			return
 		}
 		if clteRet2 == 0 {
 			glob.Attempts += 1
 			if glob.Attempts < 3 {
-				d.execTest(k, v)
+				d.execTest(v)
 				return
 			} else {
-				log.Printf("Potential CLTE issue found - %s@%s%s%s\n", (*v).ReqLine.Method, (glob).Scheme, glob.Url.Host, glob.Url.Path)
-				GenerateReport(k, cltePayload, clteTime, clteRes)
+				log.Printf("Potential CLTE issue found - %s@%s://%s%s", (*v).ReqLine.Method, glob.URL.Scheme, glob.URL.Host,
+					glob.URL.Path)
+				GenReport(cltePayload, clteTime, clteRes)
 				if glob.ExitEarly {
 					os.Exit(0)
 				}
@@ -251,22 +219,23 @@ func (d DesyncerImpl) execTest(k string, v *Payload) {
 				return
 			}
 		} else {
-			log.Printf("CLTE timeout on both length 4 and 11\n")
+			log.Print("CLTE timeout on both length 4 and 11")
 		}
 	} else if teclRet == 1 {
-		teclRet2, _, _, err := d.testTecl(1, v)
+		teclRet2, _, _, err := d.testTECL(1, v)
 		if teclRet2 == -1 {
-			fmt.Fprintln(os.Stderr, err)
+			log.Print(err)
 			return
 		}
 		if teclRet2 == 0 {
 			glob.Attempts += 1
 			if glob.Attempts < 3 {
-				d.execTest(k, v)
+				d.execTest(v)
 				return
 			} else {
-				log.Printf("Potential TECL issue found - %s@%s%s%s\n", (*v).ReqLine.Method, (glob).Scheme, glob.Url.Host, glob.Url.Path)
-				GenerateReport(k, teclPayload, teclTime, teclRes)
+				log.Printf("Potential TECL issue found - %s@%s://%s%s", (*v).ReqLine.Method, glob.URL.Scheme, glob.URL.Host,
+					glob.URL.Path)
+				GenReport(teclPayload, teclTime, teclRes)
 				if glob.ExitEarly {
 					os.Exit(0)
 				}
@@ -274,7 +243,7 @@ func (d DesyncerImpl) execTest(k string, v *Payload) {
 				return
 			}
 		} else {
-			log.Printf("TECL timeout on both length 5 and 6\n")
+			log.Print("TECL timeout on both length 5 and 6")
 		}
 	} else if teclRet == -1 || clteRet == -1 {
 		log.Print("Socket error")
@@ -286,26 +255,19 @@ func (d DesyncerImpl) execTest(k string, v *Payload) {
 	glob.Attempts = 0
 }
 
-func (d DesyncerImpl) Start() {
-	for k, v := range payloads {
-		d.execTest(k, &v)
-	}
-}
-
-func GenerateReport(name string, p *Payload, t time.Duration, content []byte) {
+func GenReport(p *Payload, t time.Duration, content []byte) {
 	if err := createDir("/payloads/"); err != nil {
-		fmt.Println(err)
+		log.Print(err)
 	}
 	pwd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		log.Print(err)
 		return
 	}
-	fname := fmt.Sprintf("%s/payloads/%s_%s", pwd, strings.ReplaceAll(glob.Url.Host, ".", "_"), name)
-
+	fname := fmt.Sprintf("%s/payloads/%s_%s", pwd, strings.ReplaceAll(glob.URL.Host, ".", "_"), p.ReqLine.Query)
 	file, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		log.Print(err)
 		return
 	}
 

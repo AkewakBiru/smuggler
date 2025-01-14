@@ -21,8 +21,9 @@ type Payload struct {
 	Header  map[string]string // a key value pair of HTTP headers
 	Body    string            // body of the request
 	Host    string            // host the request is sent to
-	Port    int               // destination port of the request
+	Port    string            // destination port of the request
 	Cl      int               // content-length
+	HdrPl   string            // optional header payload
 }
 
 func (p *Payload) ToString() string {
@@ -38,11 +39,14 @@ func (p *Payload) ToString() string {
 	for k, v := range p.Header {
 		final += fmt.Sprintf("%s: %s%s", k, v, RN)
 	}
+	if len(p.HdrPl) > 0 {
+		final += p.HdrPl + RN
+	}
 	if p.Cl > 0 {
 		final += fmt.Sprintf("Content-Length: %d%s", p.Cl, RN)
 	}
-
-	if p.ReqLine.Method == http.MethodGet || p.ReqLine.Method == http.MethodHead || p.ReqLine.Method == http.MethodOptions {
+	if p.ReqLine.Method == http.MethodGet || p.ReqLine.Method == http.MethodHead ||
+		p.ReqLine.Method == http.MethodOptions {
 		final += RN
 	} else if p.ReqLine.Method == "POST" {
 		if len(p.Body) > 0 {
