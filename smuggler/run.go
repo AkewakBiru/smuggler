@@ -2,6 +2,7 @@ package smuggler
 
 import (
 	"bufio"
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -22,7 +23,7 @@ type Glob struct {
 	Header    map[string]string
 	Attempts  int
 	ExitEarly bool
-	Timeout   int
+	Timeout   time.Duration
 	File      string
 }
 
@@ -85,7 +86,7 @@ func (DesyncerImpl) GetCookie(g *Glob) error {
 		ReqLine: ReqLine{Method: "HEAD",
 			Path: glob.URL.Path, Query: fmt.Sprint("nocache=", rand.Int63n(math.MaxInt64)), Version: "HTTP/1.1"}}
 
-	resp, err := t.RoundTrip(&Request{Payload: &payload, Url: glob.URL})
+	resp, err := t.RoundTrip(&Request{Payload: &payload, Url: glob.URL, Timeout: glob.Timeout})
 	if err != nil {
 		return err
 	}
@@ -129,23 +130,22 @@ func (d DesyncerImpl) Start() error {
 func (d DesyncerImpl) test(p *Payload) (int, []byte, *Payload, error) {
 	t := Transport{}
 	start := time.Now()
-	resp, err := t.RoundTrip(&Request{Url: glob.URL, Payload: p})
+	resp, err := t.RoundTrip(&Request{Url: glob.URL, Payload: p, Timeout: glob.Timeout})
 	if err != nil {
-		if resp != nil {
-			return int(resp.ContentLength), nil, p, err
-		} else {
-			return -1, nil, p, err
+		if errors.Is(err, context.DeadlineExceeded) { // deadline exceeds after waiting for 'timeout' seconds
+			return 1, nil, p, err
 		}
+		return -1, nil, p, err
 	}
+	defer resp.Body.Close()
 	diff := time.Since(start)
 
 	var sample []byte = make([]byte, 100)
 	if _, err = resp.Body.Read(sample); err != nil && err != io.EOF {
 		return -1, nil, nil, fmt.Errorf("error while reading response received:%v", err)
 	}
-	resp.Body.Close()
 	if len(sample) == 0 {
-		if diff < time.Duration(time.Duration.Seconds(4.0)) {
+		if diff < time.Duration(glob.Timeout-time.Second) {
 			return 2, sample, p, nil // disconnected before timeout
 		}
 		return 1, sample, p, nil // connection timeout

@@ -15,6 +15,7 @@ import (
 type Request struct {
 	Url     *url.URL
 	Payload *Payload
+	Timeout time.Duration
 }
 
 type clientConn struct {
@@ -64,17 +65,24 @@ func (t *Transport) RoundTrip(req *Request) (*http.Response, error) {
 	cc.resp = make(chan *http.Response, 1)
 	cc.readCh = make(chan struct{}, 1)
 
+	// having a hard time differentiating between read and write timeouts as errors received are the same,
+	// so setting a writedeadline and using a context for read-deadline, then checking from the caller is the
+	// simplest approach i can think of.
+	if err := cc.conn.SetWriteDeadline(time.Now().Add(req.Timeout)); err != nil {
+		return nil, err
+	}
+
 	if _, err := cc.conn.Write([]byte(req.Payload.ToString())); err != nil {
 		return &http.Response{ContentLength: -1}, err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	ctx, cancel := context.WithTimeout(context.Background(), req.Timeout)
 	defer cancel()
 	go cc.readResponse()
 
 	select {
 	case <-ctx.Done():
-		return &http.Response{ContentLength: 1}, errors.New("read context deadline exceeded")
+		return nil, ctx.Err() // read deadline
 	case <-cc.readCh:
 		return nil, cc.readError
 	case resp := <-cc.resp:
