@@ -2,3 +2,4 @@ payloads
 .dist/
 .vscode/
 smuggler/coverage.*
+smuggler/stdout*.go
