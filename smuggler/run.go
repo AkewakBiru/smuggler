@@ -21,7 +21,6 @@ type Glob struct {
 	Method    string
 	URL       *url.URL
 	Header    map[string]string
-	Attempts  int
 	ExitEarly bool
 	Timeout   time.Duration
 	File      string
@@ -33,12 +32,11 @@ var glob Glob
 // sneaks in a request in another request, the synchronization will be affected resulting in
 // weird behaviours (users receiving response meant to be received by other users)
 type Desyncer interface {
-	test(*Payload) (int, []byte, Payload, error)
-	testCLTE()
-	testTECL(int, *Payload) (int, []byte, Payload, error) // returns 1 if connection timedout, 0 if normal response,
-	GetCookie() error                                     // 2 if disconnected before timeout
+	test(*Payload) (int, error)  // returns 1 if connection timedout, 0 if normal response,\
+	testCLTE(int, *Payload) bool // 2 if disconnected before timeout
+	testTECL(int, *Payload) bool
+	GetCookie() error
 	Start() error
-	execTest(string, Payload)
 }
 
 type DesyncerImpl struct {
@@ -122,140 +120,128 @@ func (d DesyncerImpl) Start() error {
 			return err
 		}
 		payload := NewPl(string(tmp))
-		d.execTest(payload)
+		if d.testCLTE(payload) || d.testTECL(payload) {
+			return nil
+		}
 	}
 	return nil
 }
 
-func (d DesyncerImpl) test(p *Payload) (int, []byte, *Payload, error) {
+func (d DesyncerImpl) test(p *Payload) (int, error) {
 	t := Transport{}
 	start := time.Now()
 	resp, err := t.RoundTrip(&Request{Url: glob.URL, Payload: p, Timeout: glob.Timeout})
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) { // deadline exceeds after waiting for 'timeout' seconds
-			return 1, nil, p, err
+		if errors.Is(err, context.DeadlineExceeded) || strings.Compare(err.Error(), "read timeout") == 0 {
+			return 1, err // deadline exceeds after waiting for 'timeout' seconds
 		}
-		return -1, nil, p, err
+		return -1, err
 	}
-	defer resp.Body.Close()
 	diff := time.Since(start)
+	defer resp.Body.Close()
 
 	var sample []byte = make([]byte, 100)
 	if _, err = resp.Body.Read(sample); err != nil && err != io.EOF {
-		return -1, nil, nil, fmt.Errorf("error while reading response received:%v", err)
+		return -1, fmt.Errorf("error while reading response received:%v", err)
 	}
 	if len(sample) == 0 {
 		if diff < time.Duration(glob.Timeout-time.Second) {
-			return 2, sample, p, nil // disconnected before timeout
+			return 2, nil // disconnected before timeout
 		}
-		return 1, sample, p, nil // connection timeout
+		return 1, nil // connection timeout (probably)
 	}
-	headers := ""
-	for k, v := range resp.Header {
-		headers += fmt.Sprintf("%s: %s\n", k, v)
-	}
-	return 0, append([]byte(headers), sample...), p, nil // normal response
+	return 0, nil // normal response
 }
 
-func (d DesyncerImpl) testTECL(ptype int, p *Payload) (int, []byte, *Payload, error) {
-	if ptype == 0 {
-		p.Cl = 6
-	} else {
-		p.Cl = 5
-	}
-	p.Body = "0\r\n\r\nG"
-	return d.test(p)
-}
-
-func (d DesyncerImpl) testCLTE(ptype int, p *Payload) (int, []byte, *Payload, error) {
-	if ptype == 0 {
-		p.Cl = 4
-	} else {
-		p.Cl = 11
-	}
-	p.Body = fmt.Sprintf("%X\r\nG\r\n0\r\n\r\n", 1) // if all the payload is sent, it should be a valid request
-	return d.test(p)                                //because encoding is terminated with a chunk of 0 value
-}
-
-func (d DesyncerImpl) execTest(v *Payload) {
-	startTime := time.Now()
+func (d DesyncerImpl) testTECL(p *Payload) bool {
 	log.Print("Testing TECL...")
-	teclRet, teclRes, teclPayload, err := d.testTECL(0, v)
-	if teclRet == -1 {
-		log.Print(err)
-		return
-	}
+	p.Body = "0\r\n\r\nG"
 
-	teclTime := time.Since(startTime)
+	ctr := 0
+	for {
+		p.Cl = 6
 
-	log.Print("Testing CLTE...")
-	startTime = time.Now()
-	clteRet, clteRes, cltePayload, err := d.testCLTE(0, v)
-	if clteRet == -1 {
-		log.Print(err)
-		return
-	}
-	clteTime := time.Since(startTime)
-
-	if clteRet == 1 {
-		clteRet2, _, _, err := d.testCLTE(1, v)
-		if clteRet2 == -1 {
-			log.Print(err)
-			return
-		}
-		if clteRet2 == 0 {
-			glob.Attempts += 1
-			if glob.Attempts < 3 {
-				d.execTest(v)
-				return
-			} else {
-				log.Printf("Potential CLTE issue found - %s@%s://%s%s", (*v).ReqLine.Method, glob.URL.Scheme, glob.URL.Host,
-					glob.URL.Path)
-				GenReport(cltePayload, clteTime, clteRes)
-				if glob.ExitEarly {
-					os.Exit(0)
-				}
-				glob.Attempts = 0
-				return
+		start := time.Now()
+		ret, err := d.test(p)
+		if ret != 1 {
+			if ret == -1 {
+				log.Printf("Socket error: %v", err)
+			} else if ret == 0 {
+				log.Print("No issues found")
+			} else if ret == 2 {
+				log.Printf("DISCONNECTED: %v", err)
 			}
-		} else {
-			log.Print("CLTE timeout on both length 4 and 11")
+			return false
 		}
-	} else if teclRet == 1 {
-		teclRet2, _, _, err := d.testTECL(1, v)
-		if teclRet2 == -1 {
+		diff := time.Since(start)
+		p.Cl = 5
+		ret2, err := d.test(p)
+		if ret2 == -1 {
 			log.Print(err)
-			return
+			return false
 		}
-		if teclRet2 == 0 {
-			glob.Attempts += 1
-			if glob.Attempts < 3 {
-				d.execTest(v)
-				return
+		if ret2 == 0 {
+			ctr++
+			if ctr < 3 {
+				continue
 			} else {
-				log.Printf("Potential TECL issue found - %s@%s://%s%s", (*v).ReqLine.Method, glob.URL.Scheme, glob.URL.Host,
-					glob.URL.Path)
-				GenReport(teclPayload, teclTime, teclRes)
-				if glob.ExitEarly {
-					os.Exit(0)
-				}
-				glob.Attempts = 0
-				return
+				log.Printf("Potential TECL issue found - %s@%s://%s%s", (*p).ReqLine.Method,
+					glob.URL.Scheme, glob.URL.Host, glob.URL.Path)
+				GenReport(p, diff)
+				return glob.ExitEarly
 			}
 		} else {
 			log.Print("TECL timeout on both length 5 and 6")
+			return false
 		}
-	} else if teclRet == -1 || clteRet == -1 {
-		log.Print("Socket error")
-	} else if teclRet == 0 && clteRet == 0 {
-		log.Print("No issues found")
-	} else if teclRet == 2 || clteRet == 2 {
-		log.Print("DISCONNECTED")
 	}
-	glob.Attempts = 0
 }
 
-func GenReport(p *Payload, t time.Duration, content []byte) {
+func (d DesyncerImpl) testCLTE(p *Payload) bool {
+	log.Print("Testing CLTE...")
+	p.Body = fmt.Sprintf("%X\r\nG\r\n0\r\n\r\n", 1)
+
+	ctr := 0
+	for {
+		p.Cl = 4
+		start := time.Now()
+		ret, err := d.test(p)
+		if ret != 1 {
+			if ret == -1 {
+				log.Printf("Socket error: %v", err)
+			} else if ret == 0 {
+				log.Print("No issues found")
+			} else if ret == 2 {
+				log.Printf("DISCONNECTED: %v", err)
+			}
+			return false
+		}
+		diff := time.Since(start)
+		p.Cl = 11
+		ret2, err := d.test(p)
+		if ret2 == -1 {
+			log.Print(err)
+			return false
+		}
+		if ret2 == 0 {
+			ctr++
+			if ctr < 3 {
+				continue
+			} else {
+				log.Printf("Potential CLTE issue found - %s@%s://%s%s", (*p).ReqLine.Method,
+					glob.URL.Scheme, glob.URL.Host, glob.URL.Path)
+				GenReport(p, diff)
+				return glob.ExitEarly
+			}
+		} else {
+			log.Print("CLTE timeout on both length 5 and 6")
+			return false
+		}
+
+	}
+}
+
+func GenReport(p *Payload, t time.Duration) {
 	if err := createDir("/payloads/"); err != nil {
 		log.Print(err)
 	}
@@ -270,8 +256,8 @@ func GenReport(p *Payload, t time.Duration, content []byte) {
 		log.Print(err)
 		return
 	}
+	defer file.Close()
 
-	file.WriteString("Server reply\n-----------------------------\n" + string(content))
 	for k, v := range p.Header {
 		kl := strings.ToLower(strings.TrimSpace(k))
 		if kl == "content-length" || kl == "transfer-encoding" {
@@ -305,7 +291,6 @@ func GenReport(p *Payload, t time.Duration, content []byte) {
 		}
 	}
 	file.WriteString("\nPoC Payload\n------------------------------\n" + (*p).ToString())
-	file.Close()
 }
 
 func createDir(dir string) error {

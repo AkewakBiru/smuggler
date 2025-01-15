@@ -2,7 +2,6 @@ package smuggler
 
 import (
 	"fmt"
-	"net/http"
 )
 
 const RN = "\r\n"
@@ -45,15 +44,10 @@ func (p *Payload) ToString() string {
 	if p.Cl > 0 {
 		final += fmt.Sprintf("Content-Length: %d%s", p.Cl, RN)
 	}
-	if p.ReqLine.Method == http.MethodGet || p.ReqLine.Method == http.MethodHead ||
-		p.ReqLine.Method == http.MethodOptions {
+	if len(p.Body) > 0 { // it doesn't matter the type of method, if there is a body, i will just send it
+		final += fmt.Sprintf("%s%s", RN, p.Body)
+	} else {
 		final += RN
-	} else if p.ReqLine.Method == "POST" {
-		if len(p.Body) > 0 {
-			final += fmt.Sprintf("%s%s", RN, p.Body)
-		} else {
-			final += RN
-		}
 	}
 	return final
 }

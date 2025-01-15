@@ -73,7 +73,7 @@ func (t *Transport) RoundTrip(req *Request) (*http.Response, error) {
 	}
 
 	if _, err := cc.conn.Write([]byte(req.Payload.ToString())); err != nil {
-		return &http.Response{ContentLength: -1}, err
+		return nil, err
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), req.Timeout)
@@ -84,6 +84,9 @@ func (t *Transport) RoundTrip(req *Request) (*http.Response, error) {
 	case <-ctx.Done():
 		return nil, ctx.Err() // read deadline
 	case <-cc.readCh:
+		if netErr, ok := cc.readError.(net.Error); ok && netErr.Timeout() {
+			return nil, errors.New("read timeout") // i am afraid this will never execute, the deadline exceeds first always?
+		}
 		return nil, cc.readError
 	case resp := <-cc.resp:
 		return resp, nil
