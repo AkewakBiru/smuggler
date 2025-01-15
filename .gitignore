@@ -4,4 +4,4 @@ payloads
 smuggler/coverage.*
 smuggler/stdout*.go
 result
-test
+host-file

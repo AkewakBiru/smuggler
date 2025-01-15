@@ -43,8 +43,6 @@ type DesyncerImpl struct {
 }
 
 func (d *DesyncerImpl) ParseURL(uri string) error {
-	d.Hdr = make(map[string]string)
-
 	u, err := url.Parse(uri)
 	if err != nil {
 		return err
@@ -107,7 +105,6 @@ func (d *DesyncerImpl) GetCookie() error {
 	headers["Cache-Control"] = "no-store"
 	headers["Pragma"] = "no-cache"
 	headers["Accept"] = "*/*"
-	// populate the config.Global headers
 	for k, v := range d.Hdr {
 		headers[k] = v
 	}
@@ -188,7 +185,7 @@ func (d *DesyncerImpl) test(p *Payload) (int, error) {
 }
 
 func (d *DesyncerImpl) testTECL(p *Payload) bool {
-	log.Debug().Any("URL", d.URL.Host).Msg("Testing TECL...")
+	log.Debug().Str("endpoint", d.URL.String()).Msg("Testing TECL...")
 	p.Body = "0\r\n\r\nG"
 	p.Cl = 6
 
@@ -198,11 +195,11 @@ func (d *DesyncerImpl) testTECL(p *Payload) bool {
 		ret, err := d.test(p)
 		if ret != 1 {
 			if ret == -1 {
-				log.Debug().Any("URL", d.URL.Host).Msgf("Socket error: %v", err)
+				log.Debug().Any("endpoint", d.URL.String()).Msgf("Socket error: %v", err)
 			} else if ret == 0 {
-				log.Debug().Any("URL", d.URL.Host).Msg("No issues found")
+				log.Debug().Any("endpoint", d.URL.String()).Msg("No issues found")
 			} else if ret == 2 {
-				log.Debug().Any("URL", d.URL.Host).Msgf("DISCONNECTED: %v", err)
+				log.Debug().Any("endpoint", d.URL.String()).Msgf("DISCONNECTED: %v", err)
 			}
 			return false
 		}
@@ -210,7 +207,7 @@ func (d *DesyncerImpl) testTECL(p *Payload) bool {
 		p.Cl = 5
 		ret2, err := d.test(p)
 		if ret2 == -1 {
-			log.Debug().Any("URL", d.URL.Host).Err(err).Msg("")
+			log.Debug().Any("endpoint", d.URL.String()).Err(err).Msg("")
 			return false
 		}
 		p.Cl = 6
@@ -219,18 +216,18 @@ func (d *DesyncerImpl) testTECL(p *Payload) bool {
 			if ctr < 3 {
 				continue
 			}
-			log.Info().Any("URL", d.URL.Host).Msgf("Potential TECL issue found - %s@%s://%s%s", (*p).ReqLine.Method,
-				d.URL.Scheme, d.URL.Host, d.URL.Path)
+			log.Info().Any("endpoint", d.URL.String()).Msgf("Potential TECL issue found - %s@%s://%s%s", (*p).ReqLine.Method,
+				d.URL.Scheme, d.URL.String(), d.URL.Path)
 			d.GenReport(p, diff)
 			return config.Glob.ExitEarly
 		}
-		log.Debug().Any("URL", d.URL.Host).Err(err).Msg("TECL timeout on both length 5 and 6")
+		log.Debug().Any("endpoint", d.URL.String()).Err(err).Msg("TECL timeout on both length 5 and 6")
 		return false
 	}
 }
 
 func (d *DesyncerImpl) testCLTE(p *Payload) bool {
-	log.Debug().Any("URL", d.URL.Host).Msg("Testing CLTE...")
+	log.Debug().Any("endpoint", d.URL.String()).Msg("Testing CLTE...")
 
 	p.Body = fmt.Sprintf("%X\r\nG\r\n0\r\n\r\n", 1)
 	p.Cl = 4
@@ -241,11 +238,11 @@ func (d *DesyncerImpl) testCLTE(p *Payload) bool {
 		ret, err := d.test(p)
 		if ret != 1 {
 			if ret == -1 {
-				log.Debug().Any("URL", d.URL.Host).Msgf("Socket error: %v", err)
+				log.Debug().Any("endpoint", d.URL.String()).Msgf("Socket error: %v", err)
 			} else if ret == 0 {
-				log.Debug().Any("URL", d.URL.Host).Msg("No issues found")
+				log.Debug().Any("endpoint", d.URL.String()).Msg("No issues found")
 			} else if ret == 2 {
-				log.Debug().Any("URL", d.URL.Host).Msgf("DISCONNECTED: %v", err)
+				log.Debug().Any("endpoint", d.URL.String()).Msgf("DISCONNECTED: %v", err)
 			}
 			return false
 		}
@@ -253,7 +250,7 @@ func (d *DesyncerImpl) testCLTE(p *Payload) bool {
 		p.Cl = 11
 		ret2, err := d.test(p)
 		if ret2 == -1 {
-			log.Debug().Any("URL", d.URL.Host).Err(err).Msg("")
+			log.Debug().Any("endpoint", d.URL.String()).Err(err).Msg("")
 			return false
 		}
 		p.Cl = 4
@@ -262,12 +259,12 @@ func (d *DesyncerImpl) testCLTE(p *Payload) bool {
 			if ctr < 3 {
 				continue
 			}
-			log.Info().Any("URL", d.URL.Host).Msgf("Potential CLTE issue found - %s@%s://%s%s", (*p).ReqLine.Method,
+			log.Info().Any("endpoint", d.URL.String()).Msgf("Potential CLTE issue found - %s@%s://%s%s", (*p).ReqLine.Method,
 				d.URL.Scheme, d.URL.Host, d.URL.Path)
 			d.GenReport(p, diff)
 			return config.Glob.ExitEarly
 		}
-		log.Debug().Any("URL", d.URL.Host).Err(err).Msg("CLTE timeout on both length 5 and 6")
+		log.Debug().Any("endpoint", d.URL.String()).Err(err).Msg("CLTE timeout on both length 5 and 6")
 		return false
 	}
 }

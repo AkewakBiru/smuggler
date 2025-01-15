@@ -98,7 +98,7 @@ func main() {
 	config.Glob.Method = strings.ToUpper(strings.TrimSpace(*method))
 
 	if *hosts == "" && chkStdIn() != nil {
-		log.Fatal().Msg("file containing URLs must be present or a list of URLs must be passed from the stdin")
+		log.Fatal().Msg("File containing URLs must be present or a list of URLs must be passed from the stdin")
 	}
 
 	file, err := getInput(*hosts)
@@ -110,8 +110,7 @@ func main() {
 	config.Glob.Wg = sync.WaitGroup{}
 	for scanner.Scan() {
 		config.Glob.Wg.Add(1)
-		text := scanner.Text()
-		go scanHost(text)
+		go scanHost(scanner.Text())
 	}
 	config.Glob.Wg.Wait()
 }
@@ -119,6 +118,8 @@ func main() {
 func scanHost(host string) {
 	defer config.Glob.Wg.Done()
 	var desyncr smuggler.DesyncerImpl
+	desyncr.Hdr = make(map[string]string)
+	// desyncr.Dict = zerolog.Dict()
 
 	if err := desyncr.ParseURL(host); err != nil {
 		log.Error().Err(err).Msg(host)
