@@ -3,3 +3,5 @@ payloads
 .vscode/
 smuggler/coverage.*
 smuggler/stdout*.go
+result
+test

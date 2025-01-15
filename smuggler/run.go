@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"unicode"
 
 	"github.com/rs/zerolog/log"
 
@@ -272,7 +273,7 @@ func (d *DesyncerImpl) testCLTE(p *Payload) bool {
 }
 
 func (d *DesyncerImpl) GenReport(p *Payload, t time.Duration) {
-	if err := createDir("/payloads/"); err != nil {
+	if err := createDir("/result/"); err != nil {
 		log.Warn().Err(err).Msg("")
 	}
 	pwd, err := os.Getwd()
@@ -280,7 +281,7 @@ func (d *DesyncerImpl) GenReport(p *Payload, t time.Duration) {
 		log.Warn().Err(err).Msg("")
 		return
 	}
-	fname := fmt.Sprintf("%s/payloads/%s_%s", pwd, strings.ReplaceAll(d.URL.Host, ".", "_"), p.ReqLine.Query)
+	fname := fmt.Sprintf("%s/result/%s_%s", pwd, strings.ReplaceAll(d.URL.Host, ".", "_"), p.ReqLine.Query)
 	file, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		log.Warn().Err(err).Msg("")
@@ -288,39 +289,16 @@ func (d *DesyncerImpl) GenReport(p *Payload, t time.Duration) {
 	}
 	defer file.Close()
 
-	for k, v := range p.Header {
-		kl := strings.ToLower(strings.TrimSpace(k))
-		if kl == "content-length" || kl == "transfer-encoding" {
-			toFind := ""
-			for i := 0; i <= 0xF; i++ {
-				toFind += string(byte(i))
-			}
-			if !strings.ContainsAny(k, toFind) {
-				break
-			}
-			fin := ""
-			for i := 0; i < len(k); i++ {
-				if k[i] <= 0xF {
-					fin += fmt.Sprintf("\\x0%x", k[i])
-				} else {
-					fin += string(k[i])
-				}
-			}
-			nk := fin
-			fin = ""
-			for i := 0; i < len(v); i++ {
-				if v[i] < 0xF {
-					fin += fmt.Sprintf("\\x0%x", v[i])
-				} else {
-					fin += string(v[i])
-				}
-			}
-			v = fin
-			p.Header[nk] = v
-			delete(p.Header, k)
+	nHdrPl := ""
+	for i := 0; i < len(p.HdrPl); i++ {
+		if unicode.IsPrint(rune(p.HdrPl[i])) {
+			nHdrPl += string(p.HdrPl[i])
+		} else {
+			nHdrPl += fmt.Sprintf("\\x%02X", p.HdrPl[i])
 		}
 	}
-	file.WriteString("\nPoC Payload\n------------------------------\n" + (*p).ToString())
+	p.HdrPl = nHdrPl
+	file.WriteString(p.ToString())
 }
 
 func createDir(dir string) error {
