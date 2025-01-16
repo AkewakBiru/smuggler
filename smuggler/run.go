@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -25,9 +26,10 @@ import (
 // sneaks in a request in another request, the synchronization will be affected resulting in
 // weird behaviours (users receiving response meant to be received by other users)
 type Desyncer interface {
-	test(*Payload) (int, error)  // returns 1 if connection timedout, 0 if normal response,\
-	testCLTE(int, *Payload) bool // 2 if disconnected before timeout
-	testTECL(int, *Payload) bool
+	test(*Payload) (int, error) // returns 1 if connection timedout, 0 if normal response,\
+	testCLTE(*Payload) bool     // 2 if disconnected before timeout
+	testTECL(*Payload) bool
+	runCLTECL() (bool, error) // a wrapper for clte and tecl test
 	GetCookie() error
 	Start() error
 	ParseURL(host string) error
@@ -119,7 +121,7 @@ func (d *DesyncerImpl) GetCookie() error {
 	resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("invalid endpoint: endpoint returned %d: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
+		return fmt.Errorf("invalid endpoint: endpoint returned %d (%s)", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
 	var hdr []string
 	hdr = resp.Header.Values("Set-Cookie")
@@ -136,26 +138,57 @@ func (d *DesyncerImpl) GetCookie() error {
 	return nil
 }
 
+// this could be where multiple tests are done instead of a single one
+// since there are multiple tests avialable for each, this doesn't make since
 func (d *DesyncerImpl) Start() error {
-	f, err := os.OpenFile("smuggler/tests/"+config.Glob.Test, os.O_RDONLY, 0644)
+	if d.runCLTECL() {
+		return nil
+	}
+	return nil
+}
+
+func (d *DesyncerImpl) runCLTECL() bool {
+	log.Info().Str("endpoint", d.URL.String()).Msg("Running TECL and CLTE desync tests...")
+	f, err := os.OpenFile("smuggler/tests/clte/"+config.Glob.Test, os.O_RDONLY, 0644)
 	if err != nil {
-		return err
+		log.Warn().Err(err).Msg("")
+		return false
 	}
 	defer f.Close()
 
+	ctr := 0
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
-		tmp, err := base64.StdEncoding.DecodeString(line)
+		tmp, err := hex.DecodeString(line)
 		if err != nil {
-			return err
+			log.Warn().Err(err).Msg("")
+			return false
 		}
 		payload := d.NewPl(string(tmp))
 		if d.testCLTE(payload) || d.testTECL(payload) {
-			return nil
+			ctr++
+			if config.Glob.ExitEarly {
+				log.Info().
+					Str("endpoint", d.URL.String()).
+					Str("status", "success").
+					Msgf("Test stopped on success: PoC payload stored in /result/%s directory", d.URL.Host)
+				return true
+			}
 		}
 	}
-	return nil
+	if ctr > 0 {
+		log.Info().
+			Str("endpoint", d.URL.String()).
+			Str("status", "success").
+			Msgf("finished TECL/CLTE desync tests: PoC payload stored in /result/%s directory", d.URL.Host)
+	} else {
+		log.Info().
+			Str("endpoint", d.URL.String()).
+			Str("status", "failure").
+			Msg("finished TECL/CLTE desync tests: no issues found")
+	}
+	return false
 }
 
 func (d *DesyncerImpl) test(p *Payload) (int, error) {
@@ -173,7 +206,7 @@ func (d *DesyncerImpl) test(p *Payload) (int, error) {
 
 	var sample []byte = make([]byte, 100)
 	if _, err = resp.Body.Read(sample); err != nil && err != io.EOF {
-		return -1, fmt.Errorf("error while reading response received:%v", err)
+		return -1, fmt.Errorf("socket error: %v", err)
 	}
 	if len(sample) == 0 {
 		if diff < time.Duration(config.Glob.Timeout-time.Second) {
@@ -185,7 +218,6 @@ func (d *DesyncerImpl) test(p *Payload) (int, error) {
 }
 
 func (d *DesyncerImpl) testTECL(p *Payload) bool {
-	log.Debug().Str("endpoint", d.URL.String()).Msg("Testing TECL...")
 	p.Body = "0\r\n\r\nG"
 	p.Cl = 6
 
@@ -195,11 +227,15 @@ func (d *DesyncerImpl) testTECL(p *Payload) bool {
 		ret, err := d.test(p)
 		if ret != 1 {
 			if ret == -1 {
-				log.Debug().Any("endpoint", d.URL.String()).Msgf("Socket error: %v", err)
-			} else if ret == 0 {
-				log.Debug().Any("endpoint", d.URL.String()).Msg("No issues found")
+				log.Debug().
+					Str("endpoint", d.URL.String()).
+					Str("payload", p.HdrPl).
+					Err(err).
+					Msg("")
 			} else if ret == 2 {
-				log.Debug().Any("endpoint", d.URL.String()).Msgf("DISCONNECTED: %v", err)
+				log.Debug().
+					Str("endpoint", d.URL.String()).
+					Msg("disconnected before timeout")
 			}
 			return false
 		}
@@ -207,7 +243,9 @@ func (d *DesyncerImpl) testTECL(p *Payload) bool {
 		p.Cl = 5
 		ret2, err := d.test(p)
 		if ret2 == -1 {
-			log.Debug().Any("endpoint", d.URL.String()).Err(err).Msg("")
+			log.Debug().
+				Str("endpoint", d.URL.String()).
+				Err(err).Msg("")
 			return false
 		}
 		p.Cl = 6
@@ -216,19 +254,22 @@ func (d *DesyncerImpl) testTECL(p *Payload) bool {
 			if ctr < 3 {
 				continue
 			}
-			log.Info().Any("endpoint", d.URL.String()).Msgf("Potential TECL issue found - %s@%s://%s%s", (*p).ReqLine.Method,
-				d.URL.Scheme, d.URL.String(), d.URL.Path)
+			log.Info().
+				Str("endpoint", d.URL.String()).
+				Msgf("Potential TECL issue found - %s@%s://%s%s",
+					(*p).ReqLine.Method, d.URL.Scheme, d.URL.String(), d.URL.Path)
 			d.GenReport(p, diff)
-			return config.Glob.ExitEarly
+			return true // instead return a bool if sth is found
 		}
-		log.Debug().Any("endpoint", d.URL.String()).Err(err).Msg("TECL timeout on both length 5 and 6")
+		log.Debug().
+			Str("endpoint", d.URL.String()).
+			Err(err).
+			Msg("TECL timeout on both length 5 and 6")
 		return false
 	}
 }
 
 func (d *DesyncerImpl) testCLTE(p *Payload) bool {
-	log.Debug().Any("endpoint", d.URL.String()).Msg("Testing CLTE...")
-
 	p.Body = fmt.Sprintf("%X\r\nG\r\n0\r\n\r\n", 1)
 	p.Cl = 4
 
@@ -238,11 +279,9 @@ func (d *DesyncerImpl) testCLTE(p *Payload) bool {
 		ret, err := d.test(p)
 		if ret != 1 {
 			if ret == -1 {
-				log.Debug().Any("endpoint", d.URL.String()).Msgf("Socket error: %v", err)
-			} else if ret == 0 {
-				log.Debug().Any("endpoint", d.URL.String()).Msg("No issues found")
+				log.Debug().Str("endpoint", d.URL.String()).Str("payload", p.HdrPl).Err(err).Msg("")
 			} else if ret == 2 {
-				log.Debug().Any("endpoint", d.URL.String()).Msgf("DISCONNECTED: %v", err)
+				log.Debug().Str("endpoint", d.URL.String()).Msg("disconnected before timeout")
 			}
 			return false
 		}
@@ -250,7 +289,7 @@ func (d *DesyncerImpl) testCLTE(p *Payload) bool {
 		p.Cl = 11
 		ret2, err := d.test(p)
 		if ret2 == -1 {
-			log.Debug().Any("endpoint", d.URL.String()).Err(err).Msg("")
+			log.Debug().Str("endpoint", d.URL.String()).Err(err).Msg("")
 			return false
 		}
 		p.Cl = 4
@@ -259,18 +298,18 @@ func (d *DesyncerImpl) testCLTE(p *Payload) bool {
 			if ctr < 3 {
 				continue
 			}
-			log.Info().Any("endpoint", d.URL.String()).Msgf("Potential CLTE issue found - %s@%s://%s%s", (*p).ReqLine.Method,
-				d.URL.Scheme, d.URL.Host, d.URL.Path)
+			log.Info().Str("endpoint", d.URL.String()).Msgf("Potential CLTE issue found - %s@%s://%s%s",
+				(*p).ReqLine.Method, d.URL.Scheme, d.URL.Host, d.URL.Path)
 			d.GenReport(p, diff)
-			return config.Glob.ExitEarly
+			return true
 		}
-		log.Debug().Any("endpoint", d.URL.String()).Err(err).Msg("CLTE timeout on both length 5 and 6")
+		log.Debug().Str("endpoint", d.URL.String()).Err(err).Msg("CLTE timeout on both length 4 and 11")
 		return false
 	}
 }
 
 func (d *DesyncerImpl) GenReport(p *Payload, t time.Duration) {
-	if err := createDir("/result/"); err != nil {
+	if err := createDir(fmt.Sprintf("/result/%s", d.URL.Host)); err != nil {
 		log.Warn().Err(err).Msg("")
 	}
 	pwd, err := os.Getwd()
@@ -278,7 +317,8 @@ func (d *DesyncerImpl) GenReport(p *Payload, t time.Duration) {
 		log.Warn().Err(err).Msg("")
 		return
 	}
-	fname := fmt.Sprintf("%s/result/%s_%s", pwd, strings.ReplaceAll(d.URL.Host, ".", "_"), p.ReqLine.Query)
+	fname := fmt.Sprintf("%s/result/%s/%s_%s", pwd, d.URL.Host,
+		strings.ReplaceAll(d.URL.Host, ".", "_"), p.ReqLine.Query)
 	file, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		log.Warn().Err(err).Msg("")

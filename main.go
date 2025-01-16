@@ -12,9 +12,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/panjf2000/ants"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
+
+// i am thinking, after finding an endpoint affected, i want to generate a payload and send a request,
+// and in the smuggled request, destination will be my outbound catcher ip listening for http traffic
+// this may not work because of CSP, CORS
 
 func init() {
 	flag.Usage = func() {
@@ -60,23 +65,23 @@ func chkStdIn() error {
 	return errors.New("")
 }
 
-// TODO: add verbosity (print request/response headers to stdout)
-//
-// default to POST method if method isn't provided
-// default read timeout is set to 5 seconds
 func main() {
-	hosts := flag.String("input-file", "", "--input-file test_file.txt")
-	flag.StringVar(hosts, "i", "", "-i test_file.txt")
+	hosts := flag.String("input-file", "", "--input-file urls.txt")
 	method := flag.String("method", "POST", "--method POST")
-	flag.StringVar(method, "X", "POST", "-X POST")
 	eos := flag.Bool("exit-early", true, "--exit-early false") //exit on success
-	flag.BoolVar(eos, "e", true, "-e false")
 	timeout := flag.Int("time", 5, "--timeout 5")
-	flag.IntVar(timeout, "T", 5, "-T 5")
 	ttype := flag.String("test", "basic", "--test basic")
-	flag.StringVar(ttype, "f", "basic", "-f basic")
+	poolSize := flag.Uint("thread", 100, "--thread 100")
+
 	verbose := flag.Bool("verbose", false, "--verbose")
-	flag.BoolVar(verbose, "v", false, "--verbose")
+
+	flag.StringVar(hosts, "i", "", "-i urls.txt")
+	flag.StringVar(method, "X", "POST", "-X POST")
+	flag.BoolVar(eos, "e", true, "-e false")
+	flag.IntVar(timeout, "T", 5, "-T 5")
+	flag.StringVar(ttype, "f", "basic", "-f basic")
+	flag.UintVar(poolSize, "t", 100, "-t 100")
+	flag.BoolVar(verbose, "v", false, "-v")
 	flag.Parse()
 
 	fl := false
@@ -87,7 +92,8 @@ func main() {
 		}
 	}
 	if !fl {
-		log.Fatal().Msg("Invalid test type: Available options: [basic, double, exhaustive]")
+		log.Fatal().
+			Msg("Invalid test type: Available options: [basic, double, exhaustive]")
 	}
 	if *verbose {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
@@ -98,19 +104,33 @@ func main() {
 	config.Glob.Method = strings.ToUpper(strings.TrimSpace(*method))
 
 	if *hosts == "" && chkStdIn() != nil {
-		log.Fatal().Msg("File containing URLs must be present or a list of URLs must be passed from the stdin")
+		log.Fatal().
+			Msg("File containing URLs must be present or a list of URLs must be passed from the stdin")
 	}
 
 	file, err := getInput(*hosts)
 	if err != nil {
-		log.Fatal().Msgf("%v", err)
+		log.Fatal().
+			Err(err).
+			Msg("")
 	}
+
+	pool, err := ants.NewPool(int(*poolSize))
+	if err != nil {
+		log.Fatal().
+			Err(err).
+			Msg("")
+	}
+	defer pool.Release()
 
 	scanner := bufio.NewScanner(file)
 	config.Glob.Wg = sync.WaitGroup{}
 	for scanner.Scan() {
 		config.Glob.Wg.Add(1)
-		go scanHost(scanner.Text())
+		host := scanner.Text()
+		pool.Submit(func() {
+			scanHost(host)
+		})
 	}
 	config.Glob.Wg.Wait()
 }
@@ -119,18 +139,23 @@ func scanHost(host string) {
 	defer config.Glob.Wg.Done()
 	var desyncr smuggler.DesyncerImpl
 	desyncr.Hdr = make(map[string]string)
-	// desyncr.Dict = zerolog.Dict()
 
 	if err := desyncr.ParseURL(host); err != nil {
-		log.Error().Err(err).Msg(host)
+		log.Error().
+			Err(err).
+			Msg(host)
 		return
 	}
 	if err := desyncr.GetCookie(); err != nil {
-		log.Error().Err(err).Msg(desyncr.URL.Host)
+		log.Error().
+			Err(err).
+			Msg(desyncr.URL.Host)
 		return
 	}
 	if err := desyncr.Start(); err != nil {
-		log.Error().Err(err).Msg(desyncr.URL.Host)
+		log.Error().
+			Err(err).
+			Msg(desyncr.URL.Host)
 		return
 	}
 }
