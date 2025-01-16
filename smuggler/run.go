@@ -86,7 +86,7 @@ func (d *DesyncerImpl) NewPl(pl string) *Payload {
 
 	headers := make(map[string]string)
 	headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
-	headers["Connection"] = "Keep-alive"
+	headers["Connection"] = "close"
 	headers["Content-Type"] = "application/x-www-form-urlencoded"
 	headers["Host"] = d.URL.Host
 
@@ -94,35 +94,51 @@ func (d *DesyncerImpl) NewPl(pl string) *Payload {
 	for k, v := range d.Hdr {
 		payload.Header[k] = v
 	}
-	payload.Header["Cookie"] = d.Cookie
+	if len(d.Cookie) > 0 {
+		payload.Header["Cookie"] = d.Cookie
+	}
 	return &payload
 }
 
+// use Go's http client, because it follows redirects
 func (d *DesyncerImpl) GetCookie() error {
-	t := Transport{}
-
-	headers := make(map[string]string)
-	headers["Host"] = d.URL.Host
-	headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
-	headers["Cache-Control"] = "no-store"
-	headers["Pragma"] = "no-cache"
-	headers["Accept"] = "*/*"
-	for k, v := range d.Hdr {
-		headers[k] = v
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) > 10 {
+				return http.ErrUseLastResponse
+			}
+			if len(via) > 0 {
+				req.Method = via[0].Method
+			}
+			return nil
+		},
+		Timeout: config.Glob.Timeout,
 	}
-	payload := Payload{Host: d.URL.Host, Port: d.URL.Port(), Header: headers,
-		ReqLine: ReqLine{Method: config.Glob.Method,
-			Path: d.URL.Path, Query: fmt.Sprint("nocache=", rand.Int63n(math.MaxInt64)), Version: "HTTP/1.1"}}
 
-	resp, err := t.RoundTrip(&Request{Payload: &payload, Url: d.URL, Timeout: config.Glob.Timeout})
+	var resp *http.Response
+	var err error
+	switch config.Glob.Method {
+	case http.MethodPost:
+		resp, err = client.Post(d.URL.String(), "", nil)
+	case http.MethodGet:
+		resp, err = client.Get(d.URL.String())
+	case http.MethodHead:
+		resp, err = client.Head(d.URL.String())
+	default:
+		return errors.New("HTTP: unsupported method: options [GET, POST, HEAD]")
+	}
 	if err != nil {
 		return err
 	}
-	resp.Body.Close()
 
-	if resp.StatusCode != 200 {
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("invalid endpoint: endpoint returned %d (%s)", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
+
+	if strings.TrimRight(d.URL.String(), "/") != strings.TrimRight(resp.Request.URL.String(), "/") {
+		d.URL = resp.Request.URL // incase of a redirect, update the URL
+	}
+
 	var hdr []string
 	hdr = resp.Header.Values("Set-Cookie")
 	if hdr == nil {
@@ -309,6 +325,9 @@ func (d *DesyncerImpl) testCLTE(p *Payload) bool {
 }
 
 func (d *DesyncerImpl) GenReport(p *Payload, t time.Duration) {
+	if err := createDir("/result/"); err != nil {
+		log.Warn().Err(err).Msg("")
+	}
 	if err := createDir(fmt.Sprintf("/result/%s", d.URL.Host)); err != nil {
 		log.Warn().Err(err).Msg("")
 	}
