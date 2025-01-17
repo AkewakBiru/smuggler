@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"os"
 	"smuggler/config"
+	"smuggler/smuggler/h1"
 	"strings"
 	"time"
 )
@@ -27,9 +28,9 @@ import (
 // sneaks in a request in another request, the synchronization will be affected resulting in
 // weird behaviours (users receiving response meant to be received by other users)
 type Desyncer interface {
-	test(*Payload) (int, error) // returns 1 if connection timedout, 0 if normal response,\
-	testCLTE(*Payload) bool     // 2 if disconnected before timeout
-	testTECL(*Payload) bool
+	test(*h1.Payload) (int, error) // returns 1 if connection timedout, 0 if normal response,\
+	testCLTE(*h1.Payload) bool     // 2 if disconnected before timeout
+	testTECL(*h1.Payload) bool
 	runCLTECL() (bool, error) // a wrapper for clte and tecl test
 	GetCookie() error
 	Start() error
@@ -86,8 +87,8 @@ func (d *DesyncerImpl) ParseURL(uri string) error {
 }
 
 // builds a new payload
-func (d *DesyncerImpl) NewPl(pl string) *Payload {
-	payload := Payload{HdrPl: pl, URL: d.URL}
+func (d *DesyncerImpl) NewPl(pl string) *h1.Payload {
+	payload := h1.Payload{HdrPl: pl, URL: d.URL}
 	headers := make(map[string]string)
 	headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
 	headers["Connection"] = "close"
@@ -209,13 +210,13 @@ func (d *DesyncerImpl) runCLTECL() bool {
 	return false
 }
 
-func (d *DesyncerImpl) test(p *Payload) (int, error) {
-	t := Transport{}
+func (d *DesyncerImpl) test(p *h1.Payload) (int, error) {
+	t := h1.Transport{}
 	q := d.URL.Query()
 	q.Set("t", fmt.Sprintf("%d", rand.Int32N(math.MaxInt32))) // avoid caching
 	d.URL.RawQuery = q.Encode()
 	start := time.Now()
-	resp, err := t.RoundTrip(&Request{Url: d.URL, Payload: p, Timeout: config.Glob.Timeout})
+	resp, err := t.RoundTrip(&h1.Request{Url: d.URL, Payload: p, Timeout: config.Glob.Timeout})
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || strings.Compare(err.Error(), "read timeout") == 0 {
 			return 1, err // deadline exceeds after waiting for 'timeout' seconds
@@ -238,7 +239,7 @@ func (d *DesyncerImpl) test(p *Payload) (int, error) {
 	return 0, nil // normal response
 }
 
-func (d *DesyncerImpl) testTECL(p *Payload) bool {
+func (d *DesyncerImpl) testTECL(p *h1.Payload) bool {
 	p.Body = "0\r\n\r\nG"
 	p.Cl = 6
 
@@ -296,7 +297,7 @@ func (d *DesyncerImpl) testTECL(p *Payload) bool {
 }
 
 // i may have a list of body payloads to try
-func (d *DesyncerImpl) testCLTE(p *Payload) bool {
+func (d *DesyncerImpl) testCLTE(p *h1.Payload) bool {
 	//p.Body = fmt.Sprintf("%X\r\nG\r\n0\r\n\r\n", 1) // this might work at certain places, but it fails some-times
 	p.Body = "1\r\n0"
 	p.Cl = 4
@@ -354,7 +355,7 @@ func (d *DesyncerImpl) testCLTE(p *Payload) bool {
 	}
 }
 
-func (d *DesyncerImpl) GenReport(p *Payload, t time.Duration) {
+func (d *DesyncerImpl) GenReport(p *h1.Payload, t time.Duration) {
 	if err := createDir("/result/"); err != nil {
 		log.Warn().Err(err).Msg("")
 	}
