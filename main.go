@@ -29,7 +29,7 @@ func init() {
 		h += "-i, --input-file file containing a list of URLs, this can also be passed as a STDIN to the program\n"
 		h += "-s, --scheme scheme for the url (use http|https)\n"
 		h += "-T, --timeout timeout for the request\n"
-		h += "-t, --threads number of threads\n" // TODO: implement a thread-pool: Currently N-Goroutines Per N-hosts
+		h += "-t, --threads number of threads\n"
 		h += "-f, --test type of test (basic, double, exhaustive)\n"
 		h += "-e, --exit-early exit as soon as a Desync is detected\n"
 		h += "-v, --verbose shows every detail of what is happening"
@@ -43,15 +43,17 @@ func init() {
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 }
 
-func getInput(name string) (*os.File, error) {
+func getInput(name string) *os.File {
 	var file *os.File
 	var err error
-	file, err = os.OpenFile(name, os.O_RDONLY, 0664)
-	if err != nil {
-		log.Print(err)
-		return os.Stdin, nil
+	if len(name) > 0 {
+		file, err = os.OpenFile(name, os.O_RDONLY, 0664)
+		if err == nil {
+			return file
+		}
 	}
-	return file, nil
+	log.Info().Err(err).Msg("falling back to STDIN")
+	return os.Stdin
 }
 
 func chkStdIn() error {
@@ -69,7 +71,7 @@ func main() {
 	hosts := flag.String("input-file", "", "--input-file urls.txt")
 	method := flag.String("method", "POST", "--method POST")
 	eos := flag.Bool("exit-early", true, "--exit-early false") //exit on success
-	timeout := flag.Int("time", 5, "--timeout 5")
+	timeout := flag.Uint("time", 5, "--timeout 5")
 	ttype := flag.String("test", "basic", "--test basic")
 	poolSize := flag.Uint("thread", 100, "--thread 100")
 
@@ -78,7 +80,7 @@ func main() {
 	flag.StringVar(hosts, "i", "", "-i urls.txt")
 	flag.StringVar(method, "X", "POST", "-X POST")
 	flag.BoolVar(eos, "e", true, "-e false")
-	flag.IntVar(timeout, "T", 5, "-T 5")
+	flag.UintVar(timeout, "T", 5, "-T 5")
 	flag.StringVar(ttype, "f", "basic", "-f basic")
 	flag.UintVar(poolSize, "t", 100, "-t 100")
 	flag.BoolVar(verbose, "v", false, "-v")
@@ -108,18 +110,10 @@ func main() {
 			Msg("File containing URLs must be present or a list of URLs must be passed from the stdin")
 	}
 
-	file, err := getInput(*hosts)
-	if err != nil {
-		log.Fatal().
-			Err(err).
-			Msg("")
-	}
-
+	file := getInput(*hosts)
 	pool, err := ants.NewPool(int(*poolSize))
 	if err != nil {
-		log.Fatal().
-			Err(err).
-			Msg("")
+		log.Fatal().Err(err).Msg("")
 	}
 	defer pool.Release()
 
@@ -141,21 +135,15 @@ func scanHost(host string) {
 	desyncr.Hdr = make(map[string]string)
 
 	if err := desyncr.ParseURL(host); err != nil {
-		log.Error().
-			Err(err).
-			Msg(host)
+		log.Error().Err(err).Msg(host)
 		return
 	}
 	if err := desyncr.GetCookie(); err != nil {
-		log.Error().
-			Err(err).
-			Msg(desyncr.URL.Host)
+		log.Error().Err(err).Msg(desyncr.URL.Host)
 		return
 	}
 	if err := desyncr.Start(); err != nil {
-		log.Error().
-			Err(err).
-			Msg(desyncr.URL.Host)
+		log.Error().Err(err).Msg(desyncr.URL.Host)
 		return
 	}
 }

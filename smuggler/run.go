@@ -8,6 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+	"math/rand/v2"
+	"strconv"
 	"unicode"
 
 	"github.com/rs/zerolog/log"
@@ -286,14 +289,16 @@ func (d *DesyncerImpl) testTECL(p *Payload) bool {
 		}
 		log.Debug().
 			Str("endpoint", d.URL.String()).
-			Err(err).
-			Msg("TECL timeout on both length 5 and 6")
+			Str("payload", p.HdrPl).
+			Err(err).Msg("TECL timeout on both length 5 and 6")
 		return false
 	}
 }
 
+// i may have a list of body payloads to try
 func (d *DesyncerImpl) testCLTE(p *Payload) bool {
-	p.Body = fmt.Sprintf("%X\r\nG\r\n0\r\n\r\n", 1)
+	//p.Body = fmt.Sprintf("%X\r\nG\r\n0\r\n\r\n", 1) // this might work at certain places, but it fails some-times
+	p.Body = "1\r\n0"
 	p.Cl = 4
 
 	ctr := 0
