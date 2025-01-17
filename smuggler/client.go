@@ -39,8 +39,11 @@ func (t *Transport) RoundTrip(req *Request) (*http.Response, error) {
 	host, port, err := net.SplitHostPort(req.Url.Host)
 	if err != nil {
 		host = req.Url.Host
-		port = "443"
-		req.Url.Scheme = "https"
+		if req.Url.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
 	}
 
 	dialer := net.Dialer{Timeout: time.Millisecond * 2000}
