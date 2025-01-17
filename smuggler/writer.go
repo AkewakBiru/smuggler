@@ -14,6 +14,8 @@ func WriteBasic() {
 	}
 	defer f.Close()
 
+	f.WriteString(hex.EncodeToString([]byte("Transfer-Encoding: chunked")))
+	f.Write([]byte{'\n'})
 	f.WriteString(hex.EncodeToString([]byte(" Transfer-Encoding: chunked")))
 	f.Write([]byte{'\n'})
 	f.WriteString(hex.EncodeToString([]byte("Transfer-Encoding:\tchunked")))
