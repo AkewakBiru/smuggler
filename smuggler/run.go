@@ -298,8 +298,7 @@ func (d *DesyncerImpl) testTECL(p *h1.Payload) bool {
 
 // i may have a list of body payloads to try
 func (d *DesyncerImpl) testCLTE(p *h1.Payload) bool {
-	//p.Body = fmt.Sprintf("%X\r\nG\r\n0\r\n\r\n", 1) // this might work at certain places, but it fails some-times
-	p.Body = "1\r\n0"
+	p.Body = "1\r\nG\r\n0\r\n\r\n"
 	p.Cl = 4
 
 	ctr := 0
@@ -320,7 +319,7 @@ func (d *DesyncerImpl) testCLTE(p *h1.Payload) bool {
 		}
 		diff := time.Since(start)
 		p.Cl = 11
-		p.Body = "1\r\nG\r\n0\r\n\r\n"
+		// p.Body = "1\r\nG\r\n0\r\n\r\n"
 		ret2, err := d.test(p)
 		if ret2 == -1 {
 			log.Debug().
