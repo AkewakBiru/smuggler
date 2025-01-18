@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"smuggler/config"
 	"smuggler/smuggler"
@@ -27,11 +28,11 @@ func init() {
 		h += "Usage: "
 		h += "smuggler [Options]\n\n"
 		h += "-i, --input-file file containing a list of URLs, this can also be passed as a STDIN to the program\n"
-		h += "-s, --scheme scheme for the url (use http|https)\n"
 		h += "-T, --timeout timeout for the request\n"
 		h += "-t, --threads number of threads\n"
 		h += "-f, --test type of test (basic, double, exhaustive)\n"
 		h += "-e, --exit-early exit as soon as a Desync is detected\n"
+		h += "-du, --dest-url destination URL to send the smuggled request\n"
 		h += "-v, --verbose shows every detail of what is happening"
 		fmt.Fprintln(os.Stderr, h)
 	}
@@ -74,7 +75,7 @@ func main() {
 	timeout := flag.Uint("time", 5, "--timeout 5")
 	ttype := flag.String("test", "basic", "--test basic")
 	poolSize := flag.Uint("thread", 100, "--thread 100")
-
+	destUrl := flag.String("dest-url", "", "--dest-url https://www.google.com")
 	verbose := flag.Bool("verbose", false, "--verbose")
 
 	flag.StringVar(hosts, "i", "", "-i urls.txt")
@@ -83,6 +84,7 @@ func main() {
 	flag.UintVar(timeout, "T", 5, "-T 5")
 	flag.StringVar(ttype, "f", "basic", "-f basic")
 	flag.UintVar(poolSize, "t", 100, "-t 100")
+	flag.StringVar(destUrl, "-du", "", "-du https://www.google.com")
 	flag.BoolVar(verbose, "v", false, "-v")
 	flag.Parse()
 
@@ -109,6 +111,8 @@ func main() {
 		log.Fatal().
 			Msg("File containing URLs must be present or a list of URLs must be passed from the stdin")
 	}
+
+	config.Glob.DestURL, _ = url.Parse(*destUrl) // if nil, i will use the per-host URL
 
 	file := getInput(*hosts)
 	pool, err := ants.NewPool(int(*poolSize))
