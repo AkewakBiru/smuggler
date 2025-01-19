@@ -84,7 +84,7 @@ func main() {
 	flag.UintVar(timeout, "T", 5, "-T 5")
 	flag.StringVar(ttype, "f", "basic", "-f basic")
 	flag.UintVar(poolSize, "t", 100, "-t 100")
-	flag.StringVar(destUrl, "-du", "", "-du https://www.google.com")
+	flag.StringVar(destUrl, "du", "", "-du https://www.google.com")
 	flag.BoolVar(verbose, "v", false, "-v")
 	flag.Parse()
 
@@ -137,6 +137,7 @@ func scanHost(host string) {
 	defer config.Glob.Wg.Done()
 	var desyncr smuggler.DesyncerImpl
 	desyncr.Hdr = make(map[string]string)
+	desyncr.Done = make(chan int)
 
 	if err := desyncr.ParseURL(host); err != nil {
 		log.Error().Err(err).Msg(host)
@@ -146,10 +147,7 @@ func scanHost(host string) {
 		log.Error().Err(err).Msg(desyncr.URL.Host)
 		return
 	}
-	if err := desyncr.Start(); err != nil {
-		log.Error().Err(err).Msg(desyncr.URL.Host)
-		return
-	}
+	desyncr.RunTests()
 }
 
 // CL.0 -> Front-End takes all the content, but backend takes none (weird behaviour)
