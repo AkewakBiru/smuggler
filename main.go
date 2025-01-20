@@ -27,7 +27,8 @@ var (
 	timeout  = flag.Uint("T", 5, "per-request `timeout` in seconds to decide if there is a desync issue")
 	poolSize = flag.Uint("t", 100, "number of threads `per-process`")
 	eos      = flag.Bool("e", true, "`exit` on success")
-	conc     = flag.Bool("c", true, "enable `per-URL` concurrency")
+	conc     = flag.Bool("c", false, "enable `per-URL` concurrency. Could show a lot of false positives")
+	priority = flag.String("p", "CLTEH2", "prioritize which test to run first when not using concurrency")
 	verbose  = flag.Bool("v", false, "show `verbose` output about the status each test")
 )
 
@@ -122,9 +123,11 @@ func scanHost(host string) {
 	defer config.Glob.Wg.Done()
 	var desyncr smuggler.DesyncerImpl
 	desyncr.Hdr = make(map[string]string)
-	desyncr.Wg = sync.WaitGroup{}
-	desyncr.Ctx, desyncr.Cancel = context.WithCancel(context.Background())
-	desyncr.Done = make(chan struct{}, 1)
+	if config.Glob.Concurrent {
+		desyncr.Wg = sync.WaitGroup{}
+		desyncr.Ctx, desyncr.Cancel = context.WithCancel(context.Background())
+		desyncr.TestDone = make(chan struct{}, 1)
+	}
 
 	if err := desyncr.ParseURL(host); err != nil {
 		log.Error().Err(err).Msg(host)
