@@ -18,6 +18,9 @@ type CL struct {
 
 // here all CL... tests are run
 func (cl *CL) Run() bool {
+	if config.Glob.Concurrent {
+		defer cl.Wg.Done()
+	}
 	return cl.runCLTE() // for now
 }
 
@@ -47,8 +50,17 @@ func (cl *CL) runCLTE() bool {
 					Str("endpoint", cl.URL.String()).
 					Str("status", "success").
 					Msgf("Test stopped on success: PoC payload stored in /result/%s directory", cl.URL.Hostname())
-				cl.Done <- 1
+				if config.Glob.Concurrent {
+					cl.TestDone <- struct{}{}
+				}
 				return true
+			}
+		}
+		if config.Glob.Concurrent {
+			select {
+			case <-cl.Ctx.Done():
+				return false
+			default:
 			}
 		}
 	}

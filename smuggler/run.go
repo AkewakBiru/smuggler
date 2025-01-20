@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand/v2"
 	"strconv"
+	"sync"
 	"unicode"
 
 	"github.com/rs/zerolog/log"
@@ -43,7 +44,10 @@ type DesyncerImpl struct {
 	Cookie string
 	Hdr    map[string]string
 
-	Done chan int
+	TestDone chan struct{} // closed on success, if exit-on-success is set
+	Wg       sync.WaitGroup
+	Ctx      context.Context
+	Cancel   context.CancelFunc
 }
 
 func (d *DesyncerImpl) ParseURL(uri string) error {
@@ -88,7 +92,7 @@ func (d *DesyncerImpl) ParseURL(uri string) error {
 
 // builds a new payload
 func (d *DesyncerImpl) NewPl(pl string) *h1.Payload {
-	payload := h1.Payload{HdrPl: pl, URL: d.URL}
+	payload := h1.Payload{HdrPl: pl, URL: *d.URL}
 	headers := make(map[string]string)
 	headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
 	headers["Connection"] = "close"
@@ -159,21 +163,52 @@ func (d *DesyncerImpl) GetCookie() error {
 	return nil
 }
 
-func (d *DesyncerImpl) RunTests() {
+// tests run concurrently
+func (d *DesyncerImpl) runTestsC() {
 	cl := CL{DesyncerImpl: d}
 	te := TE{DesyncerImpl: d}
 
+	d.Wg.Add(2) //increase delta when more tests are added
 	go cl.Run()
 	go te.Run()
 
-	<-d.Done
+	go func() {
+		d.Wg.Wait()
+		close(d.TestDone) // wait for all and close the channel
+	}()
+
+	select {
+	case <-d.TestDone: // signaled when one test is done, only signaled when exit on success is set
+		d.Cancel()
+	case <-d.Ctx.Done(): // signaled when all tests are complete
+	}
+}
+
+// tests run sequentially
+func (d *DesyncerImpl) runTestsN() {
+	cl := CL{DesyncerImpl: d}
+	te := TE{DesyncerImpl: d}
+
+	// if one of test runners return true, tests will stop
+	if cl.Run() || te.Run() {
+		return
+	}
+}
+
+func (d *DesyncerImpl) RunTests() {
+	if config.Glob.Concurrent {
+		d.runTestsC()
+		return
+	}
+	d.runTestsN()
 }
 
 func (d *DesyncerImpl) H1Test(p *h1.Payload) (int, error) {
 	t := h1.Transport{}
-	q := d.URL.Query()
+	p.URL = *d.URL
+	q := p.URL.Query()
 	q.Set("t", fmt.Sprintf("%d", rand.Int32N(math.MaxInt32))) // avoid caching
-	d.URL.RawQuery = q.Encode()
+	p.URL.RawQuery = q.Encode()
 	start := time.Now()
 	resp, err := t.RoundTrip(&h1.Request{Url: d.URL, Payload: p, Timeout: config.Glob.Timeout})
 	if err != nil {

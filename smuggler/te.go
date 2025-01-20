@@ -17,6 +17,9 @@ type TE struct {
 }
 
 func (te *TE) Run() bool {
+	if config.Glob.Concurrent {
+		defer te.Wg.Done()
+	}
 	return te.runTECL()
 }
 
@@ -46,8 +49,17 @@ func (te *TE) runTECL() bool {
 					Str("endpoint", te.URL.String()).
 					Str("status", "success").
 					Msgf("Test stopped on success: PoC payload stored in /result/%s directory", te.URL.Hostname())
-				te.Done <- 1
+				if config.Glob.Concurrent {
+					te.TestDone <- struct{}{}
+				}
 				return true
+			}
+		}
+		if config.Glob.Concurrent {
+			select {
+			case <-te.Ctx.Done():
+				return false
+			default:
 			}
 		}
 	}
@@ -55,12 +67,12 @@ func (te *TE) runTECL() bool {
 		log.Info().
 			Str("endpoint", te.URL.String()).
 			Str("status", "success").
-			Msgf("finished TECL/CLTE desync tests: PoC payload stored in /result/%s directory", te.URL.Hostname())
+			Msgf("finished TECL desync tests: PoC payload stored in /result/%s directory", te.URL.Hostname())
 	} else {
 		log.Info().
 			Str("endpoint", te.URL.String()).
 			Str("status", "failure").
-			Msg("finished TECL/CLTE desync tests: no issues found")
+			Msg("finished TECL desync tests: no issues found")
 	}
 	return false
 }
