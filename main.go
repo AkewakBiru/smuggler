@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -18,23 +19,23 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// i am thinking, after finding an endpoint affected, i want to generate a payload and send a request,
-// and in the smuggled request, destination will be my outbound catcher ip listening for http traffic
-// this may not work because of CSP, CORS
+var (
+	hosts    = flag.String("i", "", "file containing list of `URLs` to test")
+	method   = flag.String("X", "POST", "`method` for sending a request")
+	ttype    = flag.String("test", "basic", "`type` of test to run. options [basic, double, exhaustive]")
+	destUrl  = flag.String("dest-url", "", "out-of-band `URL` for generating payload after a result is found")
+	timeout  = flag.Uint("T", 5, "per-request `timeout` in seconds to decide if there is a desync issue")
+	poolSize = flag.Uint("t", 100, "number of threads `per-process`")
+	eos      = flag.Bool("e", true, "`exit` on success")
+	conc     = flag.Bool("c", true, "enable `per-URL` concurrency")
+	verbose  = flag.Bool("v", false, "show `verbose` output about the status each test")
+)
 
 func init() {
 	flag.Usage = func() {
-		h := "\nHTTP Request Smuggling tester\n"
-		h += "Usage: "
-		h += "smuggler [Options]\n\n"
-		h += "-i, --input-file file containing a list of URLs, this can also be passed as a STDIN to the program\n"
-		h += "-T, --timeout timeout for the request\n"
-		h += "-t, --threads number of threads\n"
-		h += "-f, --test type of test (basic, double, exhaustive)\n"
-		h += "-e, --exit-early exit as soon as a Desync is detected\n"
-		h += "-du, --dest-url destination URL to send the smuggled request\n"
-		h += "-v, --verbose shows every detail of what is happening"
+		h := "Usage: smuggler [options]\nFlags:"
 		fmt.Fprintln(os.Stderr, h)
+		flag.PrintDefaults()
 	}
 }
 
@@ -69,23 +70,6 @@ func chkStdIn() error {
 }
 
 func main() {
-	hosts := flag.String("input-file", "", "--input-file urls.txt")
-	method := flag.String("method", "POST", "--method POST")
-	eos := flag.Bool("exit-early", true, "--exit-early false") //exit on success
-	timeout := flag.Uint("time", 5, "--timeout 5")
-	ttype := flag.String("test", "basic", "--test basic")
-	poolSize := flag.Uint("thread", 100, "--thread 100")
-	destUrl := flag.String("dest-url", "", "--dest-url https://www.google.com")
-	verbose := flag.Bool("verbose", false, "--verbose")
-
-	flag.StringVar(hosts, "i", "", "-i urls.txt")
-	flag.StringVar(method, "X", "POST", "-X POST")
-	flag.BoolVar(eos, "e", true, "-e false")
-	flag.UintVar(timeout, "T", 5, "-T 5")
-	flag.StringVar(ttype, "f", "basic", "-f basic")
-	flag.UintVar(poolSize, "t", 100, "-t 100")
-	flag.StringVar(destUrl, "du", "", "-du https://www.google.com")
-	flag.BoolVar(verbose, "v", false, "-v")
 	flag.Parse()
 
 	fl := false
@@ -113,6 +97,7 @@ func main() {
 	}
 
 	config.Glob.DestURL, _ = url.Parse(*destUrl) // if nil, i will use the per-host URL
+	config.Glob.Concurrent = *conc
 
 	file := getInput(*hosts)
 	pool, err := ants.NewPool(int(*poolSize))
@@ -137,7 +122,9 @@ func scanHost(host string) {
 	defer config.Glob.Wg.Done()
 	var desyncr smuggler.DesyncerImpl
 	desyncr.Hdr = make(map[string]string)
-	desyncr.Done = make(chan int)
+	desyncr.Wg = sync.WaitGroup{}
+	desyncr.Ctx, desyncr.Cancel = context.WithCancel(context.Background())
+	desyncr.Done = make(chan struct{}, 1)
 
 	if err := desyncr.ParseURL(host); err != nil {
 		log.Error().Err(err).Msg(host)
