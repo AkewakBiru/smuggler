@@ -1,7 +1,7 @@
 package smuggler
 
 type H2 struct {
-	DesyncerImpl
+	*DesyncerImpl
 }
 
 func (h2 *H2) Run() bool {

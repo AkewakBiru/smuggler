@@ -188,10 +188,33 @@ func (d *DesyncerImpl) runTestsC() {
 func (d *DesyncerImpl) runTestsN() {
 	cl := CL{DesyncerImpl: d}
 	te := TE{DesyncerImpl: d}
+	h2 := H2{DesyncerImpl: d}
 
-	// if one of test runners return true, tests will stop
-	if cl.Run() || te.Run() {
-		return
+	switch config.Glob.Priority {
+	case config.CLTEH2:
+		if cl.Run() || te.Run() || h2.Run() {
+			return
+		}
+	case config.CLH2TE:
+		if cl.Run() || h2.Run() || te.Run() {
+			return
+		}
+	case config.TECLH2:
+		if te.Run() || cl.Run() || h2.Run() {
+			return
+		}
+	case config.TEH2CL:
+		if te.Run() || h2.Run() || cl.Run() {
+			return
+		}
+	case config.H2CLTE:
+		if h2.Run() || cl.Run() || te.Run() {
+			return
+		}
+	case config.H2TECL:
+		if h2.Run() || te.Run() || cl.Run() {
+			return
+		}
 	}
 }
 

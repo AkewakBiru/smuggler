@@ -24,11 +24,11 @@ var (
 	method   = flag.String("X", "POST", "`method` for sending a request")
 	ttype    = flag.String("test", "basic", "`type` of test to run. options [basic, double, exhaustive]")
 	destUrl  = flag.String("dest-url", "", "out-of-band `URL` for generating payload after a result is found")
+	priority = flag.String("p", "CLTEH2", "`priority` indicating which test to run first when not using concurrency")
 	timeout  = flag.Uint("T", 5, "per-request `timeout` in seconds to decide if there is a desync issue")
 	poolSize = flag.Uint("t", 100, "number of threads `per-process`")
 	eos      = flag.Bool("e", true, "`exit` on success")
 	conc     = flag.Bool("c", false, "enable `per-URL` concurrency. Could show a lot of false positives")
-	priority = flag.String("p", "CLTEH2", "prioritize which test to run first when not using concurrency")
 	verbose  = flag.Bool("v", false, "show `verbose` output about the status each test")
 )
 
@@ -99,6 +99,13 @@ func main() {
 
 	config.Glob.DestURL, _ = url.Parse(*destUrl) // if nil, i will use the per-host URL
 	config.Glob.Concurrent = *conc
+	sl := []string{"CLTEH2", "CLH2TE", "TECLH2", "TEH2CL", "H2CLTE", "H2TECL"}
+	if len(*priority) != 6 || !contains(sl, strings.ToUpper(*priority)) {
+		log.Warn().
+			Msg("Invalid priority: unknown priority sequence was used")
+		*priority = "CLTEH2"
+	}
+	setPriority(strings.ToUpper(*priority))
 
 	file := getInput(*hosts)
 	pool, err := ants.NewPool(int(*poolSize))
@@ -138,6 +145,32 @@ func scanHost(host string) {
 		return
 	}
 	desyncr.RunTests()
+}
+
+func contains(slice []string, pstr string) bool {
+	for _, str := range slice {
+		if pstr == str {
+			return true
+		}
+	}
+	return false
+}
+
+func setPriority(str string) {
+	switch str {
+	case "H2CLTE":
+		config.Glob.Priority = config.H2CLTE
+	case "H2TECL":
+		config.Glob.Priority = config.H2TECL
+	case "CLTEH2":
+		config.Glob.Priority = config.CLTEH2
+	case "CLH2TE":
+		config.Glob.Priority = config.CLH2TE
+	case "TECLH2":
+		config.Glob.Priority = config.TECLH2
+	case "TEH2CL":
+		config.Glob.Priority = config.TEH2CL
+	}
 }
 
 // CL.0 -> Front-End takes all the content, but backend takes none (weird behaviour)
