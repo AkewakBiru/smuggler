@@ -29,7 +29,7 @@ var (
 	poolSize = flag.Uint("t", 100, "number of threads `per-process`")
 	eos      = flag.Bool("e", true, "`exit` on success")
 	conc     = flag.Bool("c", false, "enable `per-URL` concurrency. Could show a lot of false positives")
-	verbose  = flag.Bool("v", false, "show `verbose` output about the status each test")
+	verbose  = flag.Bool("v", false, "show `verbose` output about the status of each test")
 )
 
 func init() {

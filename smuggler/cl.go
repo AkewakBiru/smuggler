@@ -7,7 +7,6 @@ import (
 	"os"
 	"smuggler/config"
 	"smuggler/smuggler/h1"
-	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -85,7 +84,6 @@ func (d *CL) clte(p *h1.Payload) bool {
 
 	ctr := 0
 	for {
-		start := time.Now()
 		ret, err := d.H1Test(p)
 		if ret != 1 {
 			if ret == -1 {
@@ -99,7 +97,6 @@ func (d *CL) clte(p *h1.Payload) bool {
 			}
 			return false
 		}
-		diff := time.Since(start)
 		p.Cl = 11
 		ret2, err := d.H1Test(p)
 		if ret2 == -1 {
@@ -123,7 +120,7 @@ func (d *CL) clte(p *h1.Payload) bool {
 			p.Cl = len(p.Body)
 			d.H1Test(p) //
 			d.H1Test(p) // to make sure the queued req proceeds
-			d.GenReport(p, diff)
+			d.GenReport(p)
 			return true
 		}
 		log.Debug().

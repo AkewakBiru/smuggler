@@ -7,7 +7,6 @@ import (
 	"os"
 	"smuggler/config"
 	"smuggler/smuggler/h1"
-	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -83,7 +82,6 @@ func (te *TE) tecl(p *h1.Payload) bool {
 
 	ctr := 0
 	for {
-		start := time.Now()
 		ret, err := te.H1Test(p)
 		if ret != 1 {
 			if ret == -1 {
@@ -98,7 +96,6 @@ func (te *TE) tecl(p *h1.Payload) bool {
 			}
 			return false
 		}
-		diff := time.Since(start)
 		p.Cl = 5
 		ret2, err := te.H1Test(p)
 		if ret2 == -1 {
@@ -123,7 +120,7 @@ func (te *TE) tecl(p *h1.Payload) bool {
 			p.Cl = len(fmt.Sprintf("1\r\nA\r\n%X\r\n", len(inner)))
 			te.H1Test(p)
 			te.H1Test(p)
-			te.GenReport(p, diff)
+			te.GenReport(p)
 			return true // instead return a bool if sth is found
 		}
 		log.Debug().
