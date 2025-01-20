@@ -256,7 +256,7 @@ func (d *DesyncerImpl) H1Test(p *h1.Payload) (int, error) {
 	return 0, nil // normal response
 }
 
-func (d *DesyncerImpl) GenReport(p *h1.Payload, t time.Duration) {
+func (d *DesyncerImpl) GenReport(p *h1.Payload) {
 	if err := createDir("/result/"); err != nil {
 		log.Warn().Err(err).Msg("")
 	}
