@@ -7,24 +7,11 @@ import (
 )
 
 const RN = "\r\n"
-const ENDCHUNK = "0\r\n\r\n"
-
-// type ReqLine struct {
-// 	URL      *url.URL
-// 	Method   string
-// 	Path     string // endpoint (directory/ page) the request is sent to
-// 	Fragment string
-// 	Query    string // query parameter and value combn
-// 	Version  string
-// }
 
 type Payload struct {
-	URL *url.URL
-	// ReqLine ReqLine
+	URL    url.URL
 	Header map[string]string // a key value pair of HTTP headers
 	Body   string            // body of the request
-	Host   string            // host the request is sent to
-	Port   string            // destination port of the request
 	Cl     int               // content-length
 	HdrPl  string            // optional header payload
 }
@@ -36,17 +23,17 @@ func (p *Payload) ToString() string {
 		final += "?" + p.URL.RawQuery
 	}
 	if len(p.URL.Fragment) > 0 {
-		final += "#" + p.URL.Fragment
+		final = fmt.Sprintf("%s#%s", final, p.URL.Fragment)
 	}
 	final += " HTTP/1.1\r\n"
 	for k, v := range p.Header {
-		final += fmt.Sprintf("%s: %s%s", k, v, RN)
+		final += fmt.Sprintf("%s: %s\r\n", k, v)
 	}
 	if len(p.HdrPl) > 0 {
 		final += p.HdrPl + RN
 	}
 	if p.Cl > 0 {
-		final += fmt.Sprintf("Content-Length: %d%s", p.Cl, RN)
+		final += fmt.Sprintf("Content-Length: %d\r\n", p.Cl)
 	}
 	if len(p.Body) > 0 { // it doesn't matter the type of method, if there is a body, i will just send it
 		final += fmt.Sprintf("%s%s", RN, p.Body)

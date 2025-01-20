@@ -30,7 +30,7 @@ type test struct {
 
 func buildReqLine(_test *test) *h1.Request {
 	url := url.URL{Scheme: _test.scheme, Host: _test.host, Path: _test.path}
-	payload := h1.Payload{URL: &url}
+	payload := h1.Payload{URL: url}
 	if len(_test.body) > 0 {
 		payload.Body = _test.body
 		payload.Cl = len(payload.Body)
