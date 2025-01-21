@@ -81,15 +81,17 @@ func main() {
 		}
 	}
 	if !fl {
-		log.Fatal().
+		log.Warn().
 			Msg("Invalid test type: Available options: [basic, double, exhaustive]")
+		config.Glob.Test = config.B
+	} else {
+		setLevel(strings.ToUpper(*ttype))
 	}
 	if *verbose {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	}
 	config.Glob.ExitEarly = *eos
 	config.Glob.Timeout = time.Duration(*timeout) * time.Second
-	config.Glob.Test = *ttype
 	config.Glob.Method = strings.ToUpper(strings.TrimSpace(*method))
 
 	if *hosts == "" && chkStdIn() != nil {
@@ -156,20 +158,29 @@ func contains(slice []string, pstr string) bool {
 	return false
 }
 
+func setLevel(str string) {
+	levelMap := map[string]config.LEVEL{
+		"BASIC":      config.B,
+		"DOUBLE":     config.M,
+		"EXHAUSTIVE": config.E,
+	}
+
+	if val, ok := levelMap[str]; ok {
+		config.Glob.Test = val
+	}
+}
+
 func setPriority(str string) {
-	switch str {
-	case "H2CLTE":
-		config.Glob.Priority = config.H2CLTE
-	case "H2TECL":
-		config.Glob.Priority = config.H2TECL
-	case "CLTEH2":
-		config.Glob.Priority = config.CLTEH2
-	case "CLH2TE":
-		config.Glob.Priority = config.CLH2TE
-	case "TECLH2":
-		config.Glob.Priority = config.TECLH2
-	case "TEH2CL":
-		config.Glob.Priority = config.TEH2CL
+	priorityMap := map[string]config.Priority{
+		"H2CLTE": config.H2CLTE,
+		"H2TECL": config.H2TECL,
+		"CLTEH2": config.CLTEH2,
+		"CLH2TE": config.CLH2TE,
+		"TECLH2": config.TECLH2,
+		"TEH2CL": config.TEH2CL,
+	}
+	if val, ok := priorityMap[str]; ok {
+		config.Glob.Priority = val
 	}
 }
 

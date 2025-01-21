@@ -7,6 +7,13 @@ import (
 )
 
 type Priority uint8
+type LEVEL byte
+
+const (
+	B LEVEL = iota
+	M
+	E
+)
 
 const (
 	H2CLTE Priority = iota
@@ -19,7 +26,7 @@ const (
 
 type Global struct {
 	Method string
-	Test   string
+	Test   LEVEL
 
 	ExitEarly  bool
 	Concurrent bool
