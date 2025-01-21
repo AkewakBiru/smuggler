@@ -27,10 +27,7 @@ import (
 // sneaks in a request in another request, the synchronization will be affected resulting in
 // weird behaviours (users receiving response meant to be received by other users)
 type Desyncer interface {
-	H1Test(*h1.Payload) (int, error) // returns 1 if connection timedout, 0 if normal response,\
-	// testCLTE(*h1.Payload) bool       // 2 if disconnected before timeout
-	// testTECL(*h1.Payload) bool
-	// runCLTECL() (bool, error) // a wrapper for clte and tecl test
+	H1Test(*h1.Payload) (int, error)
 	GetCookie() error
 	RunTests() error
 	ParseURL(host string) error
@@ -167,10 +164,12 @@ func (d *DesyncerImpl) GetCookie() error {
 func (d *DesyncerImpl) runTestsC() {
 	cl := CL{DesyncerImpl: d}
 	te := TE{DesyncerImpl: d}
+	h2 := H2{DesyncerImpl: d}
 
-	d.Wg.Add(2) //increase delta when more tests are added
+	d.Wg.Add(3) //increase delta when more tests are added
 	go cl.Run()
 	go te.Run()
+	go h2.Run()
 
 	go func() {
 		d.Wg.Wait()
@@ -190,29 +189,17 @@ func (d *DesyncerImpl) runTestsN() {
 	te := TE{DesyncerImpl: d}
 	h2 := H2{DesyncerImpl: d}
 
-	switch config.Glob.Priority {
-	case config.CLTEH2:
-		if cl.Run() || te.Run() || h2.Run() {
-			return
-		}
-	case config.CLH2TE:
-		if cl.Run() || h2.Run() || te.Run() {
-			return
-		}
-	case config.TECLH2:
-		if te.Run() || cl.Run() || h2.Run() {
-			return
-		}
-	case config.TEH2CL:
-		if te.Run() || h2.Run() || cl.Run() {
-			return
-		}
-	case config.H2CLTE:
-		if h2.Run() || cl.Run() || te.Run() {
-			return
-		}
-	case config.H2TECL:
-		if h2.Run() || te.Run() || cl.Run() {
+	tests := map[config.Priority][]func() bool{
+		config.CLTEH2: {cl.Run, te.Run, h2.Run},
+		config.CLH2TE: {cl.Run, h2.Run, te.Run},
+		config.H2TECL: {h2.Run, te.Run, cl.Run},
+		config.H2CLTE: {h2.Run, cl.Run, te.Run},
+		config.TECLH2: {te.Run, cl.Run, h2.Run},
+		config.TEH2CL: {te.Run, h2.Run, cl.Run},
+	}
+
+	for _, testFunc := range tests[config.Glob.Priority] {
+		if testFunc() {
 			return
 		}
 	}
