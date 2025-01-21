@@ -22,6 +22,13 @@ import (
 	"golang.org/x/net/http2/hpack"
 )
 
+type Mode byte
+
+const (
+	H2 Mode = iota
+	H2C
+)
+
 // use verbose logging to log all frames
 // export GODEBUG=http2debug=2
 
@@ -61,12 +68,13 @@ type cstream struct { // adding window would be a good idea but i don't care
 	pw   *PipeWriter
 }
 
-type Mode byte
-
-const (
-	H2 Mode = iota
-	H2C
-)
+// used for all payload construction
+// Joining payload key and value doesn't add a space for H1
+// For H2, i will strip the first space that i find, might mess some payloads
+type Payload struct {
+	Key string
+	Val string
+}
 
 type Request struct {
 	URL    *url.URL
@@ -74,6 +82,8 @@ type Request struct {
 	Hdrs   map[string][]string
 	Body   []byte
 	Mode   Mode // is it h2/h2c
+
+	Payload *Payload // send it as a header as-is (in lowercase) // strip the first space if found (in value)
 }
 
 func BuildReq(req *Request) *http.Request {
@@ -108,6 +118,13 @@ func BuildH2CPayload(req *Request) (string, error) {
 	}
 	str := base64.RawStdEncoding.EncodeToString(buf.Bytes())
 	final += "Connection: Upgrade, HTTP2-Settings\r\nUpgrade: h2c\r\nHTTP2-Settings: " + str + "\r\n"
+	if req.Payload != nil {
+		if req.Payload.Val[0] == ' ' {
+			final += fmt.Sprintf("%s:%s", req.Payload.Key, req.Payload.Val[1:])
+		} else {
+			final += fmt.Sprintf("%s:%s", req.Payload.Key, req.Payload.Val)
+		}
+	}
 	final += "\r\n"
 	if len(req.Body) > 0 {
 		final += string(req.Body)
@@ -445,10 +462,18 @@ func (c *clientConn) encodeHeaders(req *Request) []byte {
 			c.writeHeader(strings.ToLower(k), v)
 		}
 	}
+	if req.Payload != nil {
+		if req.Payload.Val[0] == ' ' {
+			c.writeHeader(req.Payload.Key, req.Payload.Val[1:])
+		} else {
+			c.writeHeader(req.Payload.Key, req.Payload.Val)
+		}
+	}
 	return c.hbuf.Bytes()
 }
 
 func (c *clientConn) writeHeader(name, val string) {
+	// log.Printf("%s: %s\n", name, val)
 	c.henc.WriteField(hpack.HeaderField{Name: name, Value: val})
 }
 

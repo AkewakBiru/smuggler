@@ -1,12 +1,10 @@
 package smuggler
 
 import (
-	"bufio"
-	"encoding/hex"
 	"fmt"
-	"os"
 	"smuggler/config"
 	"smuggler/smuggler/h1"
+	"smuggler/smuggler/tests"
 
 	"github.com/rs/zerolog/log"
 )
@@ -25,41 +23,32 @@ func (cl *CL) Run() bool {
 
 func (cl *CL) runCLTE() bool {
 	log.Info().Str("endpoint", cl.URL.String()).Msg("Running CLTE desync tests...")
-	f, err := os.OpenFile("smuggler/tests/clte/"+config.Glob.Test, os.O_RDONLY, 0644)
-	if err != nil {
-		log.Warn().Err(err).Msg("")
-		return false
-	}
-	defer f.Close()
+	generator := tests.Generator{}
+	payload := generator.Generate(tests.TE, config.Glob.Test)
 
 	ctr := 0
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := scanner.Text()
-		tmp, err := hex.DecodeString(line)
-		if err != nil {
-			log.Warn().Err(err).Msg("")
-			return false
-		}
-		payload := cl.NewPl(string(tmp))
-		if cl.clte(payload) {
-			ctr++
-			if config.Glob.ExitEarly {
-				log.Info().
-					Str("endpoint", cl.URL.String()).
-					Str("status", "success").
-					Msgf("Test stopped on success: PoC payload stored in /result/%s directory", cl.URL.Hostname())
-				if config.Glob.Concurrent {
-					cl.TestDone <- struct{}{}
+	for k, vv := range payload {
+		for _, v := range vv {
+			payload := cl.NewPl(fmt.Sprintf("%s:%s", k, v))
+			if cl.clte(payload) {
+				ctr++
+				if config.Glob.ExitEarly {
+					log.Info().
+						Str("endpoint", cl.URL.String()).
+						Str("status", "success").
+						Msgf("Test stopped on success: PoC payload stored in /result/%s directory", cl.URL.Hostname())
+					if config.Glob.Concurrent {
+						cl.TestDone <- struct{}{}
+					}
+					return true
 				}
-				return true
 			}
-		}
-		if config.Glob.Concurrent {
-			select {
-			case <-cl.Ctx.Done():
-				return false
-			default:
+			if config.Glob.Concurrent {
+				select {
+				case <-cl.Ctx.Done():
+					return false
+				default:
+				}
 			}
 		}
 	}
