@@ -495,7 +495,7 @@ func GetRequestSummary(req *Request) string {
 	if len(req.URL.RawQuery) > 0 {
 		sb.WriteString("?" + req.URL.RawQuery)
 	}
-	sb.WriteString("HTTP/2\r\n")
+	sb.WriteString(" HTTP/2\r\n")
 
 	for k, vv := range req.Hdrs {
 		for _, v := range vv {
@@ -505,7 +505,7 @@ func GetRequestSummary(req *Request) string {
 
 	sb.WriteString("Host: " + req.URL.Host + "\r\n")
 	if req.Payload != nil {
-		sb.WriteString(fmt.Sprintf("%s:%s\r\n", req.Payload.Key, req.Payload.Val))
+		sb.WriteString(fmt.Sprintf("%s: %s\r\n", req.Payload.Key, req.Payload.Val))
 	}
 
 	sb.WriteString("\r\n")

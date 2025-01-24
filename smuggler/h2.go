@@ -11,7 +11,6 @@ import (
 	"smuggler/config"
 	"smuggler/smuggler/h2"
 	"smuggler/smuggler/tests"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -35,7 +34,7 @@ func (h *H2) Run() bool {
 	if exists {
 		log.Warn().
 			Any("Priority", config.Glob.Priority).Msg("Unknown priority, defaulting to H2CLTE")
-		order = []tests.PTYPE{tests.CRLF, tests.CL, tests.TE}
+		order = []tests.PTYPE{tests.CL, tests.TE}
 	}
 	for _, t := range order {
 		if h.run(t) {
@@ -59,7 +58,7 @@ func (h *H2) run(t tests.PTYPE) bool {
 				req = h.newRequest(k, v)
 			}
 			if len(h.Cookie) > 0 {
-				req.Hdrs["Cookie"] = []string{" " + h.Cookie}
+				req.Hdrs["Cookie"] = []string{h.Cookie}
 			}
 			if h.runTest(req, t) {
 				ctr++
@@ -101,11 +100,6 @@ func (h *H2) runTest(req *h2.Request, t tests.PTYPE) bool {
 	ctr := 0
 	for {
 		t.Body(req, false)
-		// req.Body = []byte("1\r\nG")
-		// if t == tests.CL {
-		// 	req.Payload.Val = "10"
-		// }
-		// fmt.Println(h2.GetRequestSummary(req))
 		ret, err := h.sendRequest(req)
 		if ret != 1 {
 			if ret == -1 {
@@ -119,10 +113,6 @@ func (h *H2) runTest(req *h2.Request, t tests.PTYPE) bool {
 			return false
 		}
 		t.Body(req, true)
-		// req.Body = []byte("1\r\nG\r\n0\r\n\r\n")
-		// if t == tests.CL {
-		// 	req.Payload.Val = fmt.Sprintf("%d", len(req.Body))
-		// }
 		ret2, err := h.sendRequest(req)
 		if ret2 == -1 {
 			log.Debug().
@@ -135,10 +125,6 @@ func (h *H2) runTest(req *h2.Request, t tests.PTYPE) bool {
 				continue
 			}
 			t.Body(req, false)
-			// req.Body = []byte("1\r\nG")
-			// if t == tests.CL {
-			// 	req.Payload.Val = "10"
-			// }
 			log.Info().
 				Str("endpoint", h.URL.String()).
 				Msgf("Potential H2%s issue found - %s@%s://%s%s", t.String(), config.Glob.Method,
@@ -175,33 +161,9 @@ func (h *H2) generateH2Report(req *h2.Request) {
 	}
 	defer file.Close()
 
-	if _, err := file.WriteString(h.buildRequestReport(req)); err != nil {
+	if _, err := file.WriteString(h2.GetRequestSummary(req)); err != nil {
 		log.Warn().Err(err).Msg("Failed to write report to file")
 	}
-}
-
-func (h *H2) buildRequestReport(req *h2.Request) string {
-	var sb strings.Builder
-
-	sb.WriteString(fmt.Sprintf("%s %s", req.Method, h.URL.EscapedPath()))
-	if len(h.URL.RawQuery) > 0 {
-		sb.WriteString("?" + h.URL.RawQuery)
-	}
-	sb.WriteString(" HTTP/2\r\n")
-	sb.WriteString(":authority" + ": " + h.URL.Host + "\r\n")
-	sb.WriteString(":method" + ": " + req.Method + "\r\n")
-	sb.WriteString(":path" + ": " + h.URL.EscapedPath() + "\r\n")
-	sb.WriteString(":scheme: https\r\n")
-	for k, vv := range req.Hdrs {
-		for _, v := range vv {
-			sb.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
-		}
-	}
-	if req.Payload != nil {
-		sb.WriteString(fmt.Sprintf("%s: %s\r\n", req.Payload.Key, req.Payload.Val))
-	}
-	sb.WriteString("\r\n" + string(req.Body))
-	return sb.String()
 }
 
 func (h *H2) newRequest(key, val string) *h2.Request {
