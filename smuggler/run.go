@@ -16,6 +16,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"smuggler/config"
@@ -114,7 +115,14 @@ func (d *DesyncerImpl) GetCookie() error {
 			InsecureSkipVerify: true,
 		},
 	}
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		return err
+	}
+
 	client := &http.Client{
+		Jar:       jar,
 		Transport: t,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > 10 {
@@ -125,11 +133,10 @@ func (d *DesyncerImpl) GetCookie() error {
 			}
 			return nil
 		},
-		Timeout: config.Glob.Timeout,
+		Timeout: time.Second * 5, // wait for 5 seconds for a response
 	}
 
 	var resp *http.Response
-	var err error
 	switch config.Glob.Method {
 	case http.MethodPost:
 		resp, err = client.Post(d.URL.String(), "", nil)
@@ -152,17 +159,9 @@ func (d *DesyncerImpl) GetCookie() error {
 		d.URL = resp.Request.URL // incase of a redirect, update the URL
 	}
 
-	var hdr []string
-	hdr = resp.Header.Values("Set-Cookie")
-	if hdr == nil {
-		hdr = resp.Header.Values("set-cookie")
-		// fmt.Printf("%#v\n", hdr)
-	}
-	var res []string = make([]string, len(hdr))
-	for i, v := range hdr {
-		if idx := strings.Index(v, ";"); idx != -1 {
-			res[i] = v[:idx]
-		}
+	var res []string = make([]string, 0)
+	for _, j := range jar.Cookies(d.URL) {
+		res = append(res, fmt.Sprintf("%s=%s", j.Name, j.Value))
 	}
 	d.Cookie = strings.Join(res, "; ")
 	return nil
