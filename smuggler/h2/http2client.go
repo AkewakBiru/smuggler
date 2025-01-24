@@ -491,14 +491,19 @@ func (c *clientConn) onNewHeaderField(f hpack.HeaderField) {
 func GetRequestSummary(req *Request) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("%s %s HTTP/2\r\n", req.Method, req.URL.EscapedPath()))
+	sb.WriteString(req.Method + " " + req.URL.EscapedPath())
+	if len(req.URL.RawQuery) > 0 {
+		sb.WriteString("?" + req.URL.RawQuery)
+	}
+	sb.WriteString("HTTP/2\r\n")
+
 	for k, vv := range req.Hdrs {
 		for _, v := range vv {
-			sb.WriteString(fmt.Sprintf("%s:%s\r\n", k, v))
+			sb.WriteString(fmt.Sprintf("%s: %s\r\n", k, v))
 		}
 	}
 
-	sb.WriteString(fmt.Sprintf("Host: %s\r\n", req.URL.Host))
+	sb.WriteString("Host: " + req.URL.Host + "\r\n")
 	if req.Payload != nil {
 		sb.WriteString(fmt.Sprintf("%s:%s\r\n", req.Payload.Key, req.Payload.Val))
 	}
