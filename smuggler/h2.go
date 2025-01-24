@@ -28,14 +28,14 @@ func (h *H2) Run() bool {
 	// create a list of payloads and loop over them
 	priorityOrder := map[config.Priority][]tests.PTYPE{
 		config.H2CLTE: {tests.CL, tests.TE},
-		config.H2TECL: {tests.TE, tests.CL},
+		config.H2TECL: {tests.CRLF, tests.TE, tests.CL},
 	}
 
 	order, exists := priorityOrder[config.Glob.Priority]
 	if exists {
 		log.Warn().
 			Any("Priority", config.Glob.Priority).Msg("Unknown priority, defaulting to H2CLTE")
-		order = []tests.PTYPE{tests.CL, tests.TE}
+		order = []tests.PTYPE{tests.CRLF, tests.CL, tests.TE}
 	}
 	for _, t := range order {
 		if h.run(t) {
@@ -57,6 +57,9 @@ func (h *H2) run(t tests.PTYPE) bool {
 				req = h.newRequest(v, k)
 			} else {
 				req = h.newRequest(k, v)
+			}
+			if len(h.Cookie) > 0 {
+				req.Hdrs["Cookie"] = []string{" " + h.Cookie}
 			}
 			if h.runTest(req, t) {
 				ctr++
