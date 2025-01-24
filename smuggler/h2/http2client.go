@@ -464,9 +464,9 @@ func (c *clientConn) encodeHeaders(req *Request) []byte {
 	}
 	if req.Payload != nil && len(req.Payload.Key) > 0 {
 		if req.Payload.Val[0] == ' ' {
-			c.writeHeader(req.Payload.Key, req.Payload.Val[1:])
+			c.writeHeader(strings.ToLower(req.Payload.Key), req.Payload.Val[1:])
 		} else {
-			c.writeHeader(req.Payload.Key, req.Payload.Val)
+			c.writeHeader(strings.ToLower(req.Payload.Key), req.Payload.Val)
 		}
 	}
 	return c.hbuf.Bytes()
