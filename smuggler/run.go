@@ -2,6 +2,7 @@ package smuggler
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -108,7 +109,13 @@ func (d *DesyncerImpl) NewPl(pl string) *h1.Payload {
 
 // use Go's http client, because it follows redirects
 func (d *DesyncerImpl) GetCookie() error {
+	t := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+	}
 	client := &http.Client{
+		Transport: t,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) > 10 {
 				return http.ErrUseLastResponse
@@ -149,6 +156,7 @@ func (d *DesyncerImpl) GetCookie() error {
 	hdr = resp.Header.Values("Set-Cookie")
 	if hdr == nil {
 		hdr = resp.Header.Values("set-cookie")
+		// fmt.Printf("%#v\n", hdr)
 	}
 	var res []string = make([]string, len(hdr))
 	for i, v := range hdr {
