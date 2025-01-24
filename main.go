@@ -142,9 +142,20 @@ func scanHost(host string) {
 		log.Error().Err(err).Msg(host)
 		return
 	}
+
 	if err := desyncr.GetCookie(); err != nil {
 		log.Error().Err(err).Msg(desyncr.URL.Host)
 		return
+	}
+
+	if len(desyncr.Cookie) == 0 {
+		orig := *desyncr.URL
+		desyncr.URL.Path = "/" // check for cookies on URL root
+		if err := desyncr.GetCookie(); err != nil {
+			log.Error().Err(err).Msg(desyncr.URL.Host)
+			return
+		}
+		desyncr.URL = &orig
 	}
 	desyncr.RunTests()
 }
