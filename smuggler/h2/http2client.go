@@ -149,7 +149,7 @@ func (t Transport) RoundTrip(req *Request) (*http.Response, error) {
 	}
 
 	cfg := tls.Config{
-		InsecureSkipVerify: false,
+		InsecureSkipVerify: true,
 		NextProtos:         []string{"h2"},
 	}
 
@@ -462,7 +462,7 @@ func (c *clientConn) encodeHeaders(req *Request) []byte {
 			c.writeHeader(strings.ToLower(k), v)
 		}
 	}
-	if req.Payload != nil {
+	if req.Payload != nil && len(req.Payload.Key) > 0 {
 		if req.Payload.Val[0] == ' ' {
 			c.writeHeader(req.Payload.Key, req.Payload.Val[1:])
 		} else {
@@ -473,7 +473,6 @@ func (c *clientConn) encodeHeaders(req *Request) []byte {
 }
 
 func (c *clientConn) writeHeader(name, val string) {
-	// log.Printf("%s: %s\n", name, val)
 	c.henc.WriteField(hpack.HeaderField{Name: name, Value: val})
 }
 
@@ -487,4 +486,27 @@ func (c *clientConn) onNewHeaderField(f hpack.HeaderField) {
 		}
 	}
 	c.nextRes.Add(f.Name, f.Value)
+}
+
+func GetRequestSummary(req *Request) string {
+	var sb strings.Builder
+
+	sb.WriteString(fmt.Sprintf("%s %s HTTP/2\r\n", req.Method, req.URL.EscapedPath()))
+	for k, vv := range req.Hdrs {
+		for _, v := range vv {
+			sb.WriteString(fmt.Sprintf("%s:%s\r\n", k, v))
+		}
+	}
+
+	sb.WriteString(fmt.Sprintf("Host: %s\r\n", req.URL.Host))
+	if req.Payload != nil {
+		sb.WriteString(fmt.Sprintf("%s:%s\r\n", req.Payload.Key, req.Payload.Val))
+	}
+
+	sb.WriteString("\r\n")
+	if len(req.Body) > 0 {
+		sb.WriteString(string(req.Body))
+	}
+
+	return sb.String()
 }
