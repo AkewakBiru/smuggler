@@ -100,10 +100,12 @@ func (h *H2) run(t tests.PTYPE) bool {
 func (h *H2) runTest(req *h2.Request, t tests.PTYPE) bool {
 	ctr := 0
 	for {
-		req.Body = []byte("1\r\nG")
-		if t == tests.CL {
-			req.Payload.Val = "10"
-		}
+		t.Body(req, false)
+		// req.Body = []byte("1\r\nG")
+		// if t == tests.CL {
+		// 	req.Payload.Val = "10"
+		// }
+		// fmt.Println(h2.GetRequestSummary(req))
 		ret, err := h.sendRequest(req)
 		if ret != 1 {
 			if ret == -1 {
@@ -116,10 +118,11 @@ func (h *H2) runTest(req *h2.Request, t tests.PTYPE) bool {
 			}
 			return false
 		}
-		req.Body = []byte("1\r\nG\r\n0\r\n\r\n")
-		if t == tests.CL {
-			req.Payload.Val = fmt.Sprintf("%d", len(req.Body))
-		}
+		t.Body(req, true)
+		// req.Body = []byte("1\r\nG\r\n0\r\n\r\n")
+		// if t == tests.CL {
+		// 	req.Payload.Val = fmt.Sprintf("%d", len(req.Body))
+		// }
 		ret2, err := h.sendRequest(req)
 		if ret2 == -1 {
 			log.Debug().
@@ -131,10 +134,11 @@ func (h *H2) runTest(req *h2.Request, t tests.PTYPE) bool {
 			if ctr < 3 {
 				continue
 			}
-			req.Body = []byte("1\r\nG")
-			if t == tests.CL {
-				req.Payload.Val = "10"
-			}
+			t.Body(req, false)
+			// req.Body = []byte("1\r\nG")
+			// if t == tests.CL {
+			// 	req.Payload.Val = "10"
+			// }
 			log.Info().
 				Str("endpoint", h.URL.String()).
 				Msgf("Potential H2%s issue found - %s@%s://%s%s", t.String(), config.Glob.Method,
@@ -202,16 +206,17 @@ func (h *H2) buildRequestReport(req *h2.Request) string {
 
 func (h *H2) newRequest(key, val string) *h2.Request {
 	req := &h2.Request{
-		URL:     h.URL,
-		Method:  config.Glob.Method,
-		Payload: &h2.Payload{Key: key, Val: val},
+		URL:    h.URL,
+		Method: config.Glob.Method,
 	}
 	clear(req.Hdrs)
 	req.Hdrs = make(map[string][]string)
 	for k, v := range h.Hdr { // add host headers and values
 		req.Hdrs[k] = []string{v}
 	}
-	// req.Hdrs[key] = []string{val} // add the payload in the headers
+	if len(key) > 0 {
+		req.Payload = &h2.Payload{Key: key, Val: val}
+	}
 	return req
 }
 

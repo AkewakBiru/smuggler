@@ -3,6 +3,7 @@ package tests
 import (
 	"fmt"
 	"smuggler/config"
+	"smuggler/smuggler/h2"
 )
 
 // payload type [CL,TE] and test level [1-3]
@@ -12,11 +13,13 @@ type PTYPE byte
 const (
 	TE PTYPE = iota
 	CL
+	CRLF
 )
 
 var typeName = map[PTYPE]string{
-	TE: "TE",
-	CL: "CL",
+	TE:   "TE",
+	CL:   "CL",
+	CRLF: "CRLF",
 }
 
 func (t PTYPE) String() string {
@@ -39,6 +42,11 @@ func (g *Generator) Generate(_type PTYPE, level config.LEVEL) map[string][]strin
 			config.B: g.generateCLBasic,
 			config.M: g.generateCLModerate,
 			config.E: g.generateCLExhaustive,
+		},
+		CRLF: {
+			config.B: g.generateCRLF,
+			config.M: g.generateCRLF,
+			config.E: g.generateCRLF,
 		},
 	}
 
@@ -219,4 +227,50 @@ func (g *Generator) generateCLExhaustive() map[string][]string {
 		}
 	}
 	return cl
+}
+
+// crlf -> would look like
+// a header + CRLF + Injected header (CL/TE)
+// payload is trying to cause a desync only
+func (g *Generator) generateCRLF() map[string][]string {
+	crlf := make(map[string][]string)
+
+	cl := g.Generate(CL, config.Glob.Test)
+	for _, vv := range cl {
+		for i, v := range vv {
+			vv[i] = fmt.Sprintf(" A\r\n%s", v) // add the value at the req.Payload when sending the request
+		}
+		crlf["Test1"] = append(crlf["Test1"], vv...)
+	}
+
+	te := g.Generate(TE, config.Glob.Test)
+	for k, vv := range te {
+		for i, v := range vv {
+			vv[i] = fmt.Sprintf(" A\r\n%s:%s", k, v)
+		}
+		crlf["Test"] = append(crlf["Test"], vv...)
+	}
+	return crlf
+}
+
+// generates a request body depending on the request type
+func (t PTYPE) Body(req *h2.Request, normal bool) {
+	if t != CL && t != TE && t != CRLF {
+		return
+	}
+
+	if t == CL {
+		req.Payload.Val = "10"
+	}
+	if t == CRLF {
+		if req.Payload.Key == "Test1" {
+			req.Payload.Val += ": 10"
+		}
+	}
+
+	if normal {
+		req.Body = []byte("1\r\nG\r\n0\r\n\r\n")
+	} else {
+		req.Body = []byte("1\r\nG")
+	}
 }
