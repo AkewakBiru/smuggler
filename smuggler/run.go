@@ -227,7 +227,7 @@ func (d *DesyncerImpl) H1Test(p *h1.Payload) (int, error) {
 	q.Set("t", fmt.Sprintf("%d", rand.Int32N(math.MaxInt32))) // avoid caching
 	p.URL.RawQuery = q.Encode()
 	start := time.Now()
-	resp, err := t.RoundTrip(&h1.Request{Url: d.URL, Payload: p, Timeout: config.Glob.Timeout})
+	resp, err := t.RoundTrip(&h1.Request{Url: &p.URL, Payload: p, Timeout: config.Glob.Timeout})
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) || strings.Compare(err.Error(), "read timeout") == 0 {
 			return 1, err // deadline exceeds after waiting for 'timeout' seconds
@@ -262,7 +262,7 @@ func (d *DesyncerImpl) GenReport(p *h1.Payload) {
 		log.Warn().Err(err).Msg("")
 		return
 	}
-	fname := fmt.Sprintf("%s/result/%s/%ss", pwd, d.URL.Hostname(), d.URL.Query().Get("t"))
+	fname := fmt.Sprintf("%s/result/%s/%ss", pwd, d.URL.Hostname(), p.URL.Query().Get("t"))
 	file, err := os.OpenFile(fname, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		log.Warn().Err(err).Msg("")
