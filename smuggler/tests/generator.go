@@ -238,7 +238,7 @@ func (g *Generator) generateCRLF() map[string][]string {
 	cl := g.Generate(CL, config.Glob.Test)
 	for _, vv := range cl {
 		for i, v := range vv {
-			vv[i] = fmt.Sprintf(" A\r\n%s", v) // add the value at the req.Payload when sending the request
+			vv[i] = fmt.Sprintf("A\r\n%s", v) // add the value at the req.Payload when sending the request
 		}
 		crlf["Test1"] = append(crlf["Test1"], vv...)
 	}
@@ -246,7 +246,7 @@ func (g *Generator) generateCRLF() map[string][]string {
 	te := g.Generate(TE, config.Glob.Test)
 	for k, vv := range te {
 		for i, v := range vv {
-			vv[i] = fmt.Sprintf(" A\r\n%s:%s", k, v)
+			vv[i] = fmt.Sprintf("A\r\n%s:%s", k, v)
 		}
 		crlf["Test"] = append(crlf["Test"], vv...)
 	}
