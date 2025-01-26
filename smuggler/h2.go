@@ -26,15 +26,15 @@ func (h *H2) Run() bool {
 	}
 	// create a list of payloads and loop over them
 	priorityOrder := map[config.Priority][]tests.PTYPE{
-		config.H2CLTE: {tests.CL, tests.TE},
-		config.H2TECL: {tests.CRLF, tests.TE, tests.CL},
+		config.H2CLTE: {tests.CL, tests.TE, tests.CRLF},
+		config.H2TECL: {tests.TE, tests.CL, tests.CRLF},
 	}
 
 	order, exists := priorityOrder[config.Glob.Priority]
 	if exists {
 		log.Warn().
 			Any("Priority", config.Glob.Priority).Msg("Unknown priority, defaulting to H2CLTE")
-		order = []tests.PTYPE{tests.CL, tests.TE}
+		order = []tests.PTYPE{tests.CRLF, tests.CL, tests.TE}
 	}
 	for _, t := range order {
 		if h.run(t) {
@@ -45,7 +45,7 @@ func (h *H2) Run() bool {
 }
 
 func (h *H2) run(t tests.PTYPE) bool {
-	log.Info().Str("endpoint", h.URL.String()).Msgf("Running H2%s desync tests...", t.String())
+	log.Info().Str("endpoint", h.URL.String()).Msgf("Running H2-%s desync tests...", t.String())
 	ctr := 0
 	generator := tests.Generator{}
 	pl := generator.Generate(t, config.Glob.Test)
