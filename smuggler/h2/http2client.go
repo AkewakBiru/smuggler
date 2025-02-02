@@ -376,10 +376,15 @@ func (c *clientConn) readLoop() {
 			}
 		case *http2.RSTStreamFrame:
 			if f.ErrCode != 0 {
-				c.readerError = fmt.Errorf("error occurred with code: %s", f.ErrCode.String())
+				c.readerError = fmt.Errorf("%s stream received with error code: %d (%s)", f.Header().Type.String(),
+					f.ErrCode, f.ErrCode.String())
 			}
 			return
 		case *http2.GoAwayFrame:
+			if f.ErrCode != 0 {
+				c.readerError = fmt.Errorf("%s stream received with error code: %d (%s)", f.Header().Type.String(),
+					f.ErrCode, f.ErrCode.String())
+			}
 			return
 		case *http2.UnknownFrame:
 			log.Print("UNKNOWN frame received")
