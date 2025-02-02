@@ -270,15 +270,7 @@ func (d *DesyncerImpl) GenReport(p *h1.Payload) {
 	}
 	defer file.Close()
 
-	nHdrPl := ""
-	for i := 0; i < len(p.HdrPl); i++ {
-		if unicode.IsPrint(rune(p.HdrPl[i])) {
-			nHdrPl += string(p.HdrPl[i])
-		} else {
-			nHdrPl += fmt.Sprintf("\\x%02X", p.HdrPl[i])
-		}
-	}
-	p.HdrPl = nHdrPl
+	p.HdrPl = HexEscapeUnprintable(p.HdrPl)
 	file.WriteString(p.ToString())
 }
 
@@ -307,4 +299,17 @@ func createDir(dir string) error {
 		}
 	}
 	return nil
+}
+
+func HexEscapeUnprintable(s string) string {
+	var res string
+
+	for _, c := range s {
+		if unicode.IsPrint(c) {
+			res += string(c)
+		} else {
+			res = fmt.Sprintf("%s\\x%02X", res, c)
+		}
+	}
+	return res
 }
