@@ -138,9 +138,15 @@ func (t Transport) RoundTrip(req *Request) (*http.Response, error) {
 		return nil, errors.New("h2c: unsupported scheme") // h2 cleartext
 	}
 
-	host, port, err := net.SplitHostPort(req.URL.Host)
+	var tHost string
+	if strings.Contains(req.URL.Host, "\r\n") {
+		tHost = strings.Split(req.URL.Host, "\r\n")[0]
+	} else {
+		tHost = req.URL.Host
+	}
+	host, port, err := net.SplitHostPort(tHost)
 	if err != nil {
-		host = req.URL.Host
+		host = tHost
 		if req.Mode == H2C {
 			port = "80"
 		} else {
@@ -461,7 +467,7 @@ func (c *clientConn) encodeHeaders(req *Request) []byte {
 	} else {
 		c.writeHeader(":path", req.URL.Path)
 	}
-	c.writeHeader(":scheme", "https")
+	c.writeHeader(":scheme", req.URL.Scheme)
 	for k, vv := range req.Hdrs {
 		for _, v := range vv {
 			c.writeHeader(strings.ToLower(k), v)
