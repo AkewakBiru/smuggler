@@ -11,6 +11,7 @@ import (
 	"smuggler/config"
 	"smuggler/smuggler/h2"
 	"smuggler/smuggler/tests"
+	"smuggler/utils"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -161,7 +162,7 @@ func (h *H2) generateH2Report(req *h2.Request) {
 	}
 	defer file.Close()
 
-	if _, err := file.WriteString(h2.GetRequestSummary(req)); err != nil {
+	if _, err := file.WriteString(utils.GetH2RequestSummary(req)); err != nil {
 		log.Warn().Err(err).Msg("Failed to write report to file")
 	}
 }

@@ -11,7 +11,6 @@ import (
 	"math/rand/v2"
 	"strconv"
 	"sync"
-	"unicode"
 
 	"github.com/rs/zerolog/log"
 
@@ -21,6 +20,7 @@ import (
 	"os"
 	"smuggler/config"
 	"smuggler/smuggler/h1"
+	"smuggler/utils"
 	"strings"
 	"time"
 )
@@ -270,7 +270,7 @@ func (d *DesyncerImpl) GenReport(p *h1.Payload) {
 	}
 	defer file.Close()
 
-	p.HdrPl = HexEscapeUnprintable(p.HdrPl)
+	p.HdrPl = utils.HexEscapeNonPrintable(p.HdrPl)
 	file.WriteString(p.ToString())
 }
 
@@ -299,17 +299,4 @@ func createDir(dir string) error {
 		}
 	}
 	return nil
-}
-
-func HexEscapeUnprintable(s string) string {
-	var res string
-
-	for _, c := range s {
-		if unicode.IsPrint(c) {
-			res += string(c)
-		} else {
-			res = fmt.Sprintf("%s\\x%02X", res, c)
-		}
-	}
-	return res
 }
