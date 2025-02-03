@@ -40,13 +40,16 @@ type DesyncerImpl struct {
 	Desyncer
 
 	URL    *url.URL
-	Cookie string
-	Hdr    map[string]string
+	Body   string
+	Method string
+
+	Hdr map[string][]string
 
 	TestDone chan struct{} // closed on success, if exit-on-success is set
-	Wg       sync.WaitGroup
-	Ctx      context.Context
-	Cancel   context.CancelFunc
+
+	Wg     sync.WaitGroup
+	Ctx    context.Context
+	Cancel context.CancelFunc
 }
 
 func (d *DesyncerImpl) ParseURL(uri string) error {
@@ -83,15 +86,15 @@ func (d *DesyncerImpl) ParseURL(uri string) error {
 	}
 
 	if len(d.URL.User.Username()) > 0 {
-		d.Hdr["Authorization"] = fmt.Sprintf("Basic %s",
-			base64.StdEncoding.EncodeToString([]byte(d.URL.User.String())))
+		d.Hdr["Authorization"] = []string{fmt.Sprintf("Basic %s",
+			base64.StdEncoding.EncodeToString([]byte(d.URL.User.String())))}
 	}
 	return nil
 }
 
 // builds a new payload
 func (d *DesyncerImpl) NewPl(pl string) *h1.Payload {
-	payload := h1.Payload{HdrPl: pl, URL: *d.URL}
+	payload := h1.Payload{HdrPl: pl, URL: *d.URL, Method: d.Method}
 	headers := make(map[string]string)
 	headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
 	headers["Connection"] = "close"
@@ -100,10 +103,11 @@ func (d *DesyncerImpl) NewPl(pl string) *h1.Payload {
 
 	payload.Header = headers
 	for k, v := range d.Hdr {
-		payload.Header[k] = v
+		payload.Header[k] = strings.Join(v, "; ") // applies to cookies only for now
 	}
-	if len(d.Cookie) > 0 {
-		payload.Header["Cookie"] = d.Cookie
+
+	if len(d.Hdr["Cookie"]) > 0 {
+		payload.Header["Cookie"] = strings.Join(d.Hdr["Cookie"], "; ")
 	}
 	return &payload
 }
@@ -136,17 +140,9 @@ func (d *DesyncerImpl) GetCookie() error {
 		Timeout: time.Second * 5, // wait for 5 seconds for a response
 	}
 
-	var resp *http.Response
-	switch config.Glob.Method {
-	case http.MethodPost:
-		resp, err = client.Post(d.URL.String(), "", nil)
-	case http.MethodGet:
-		resp, err = client.Get(d.URL.String())
-	case http.MethodHead:
-		resp, err = client.Head(d.URL.String())
-	default:
-		return errors.New("HTTP: unsupported method: options [GET, POST, HEAD]")
-	}
+	req, _ := http.NewRequest(d.Method, d.URL.String(), nil)
+	req.Header = d.Hdr
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
@@ -159,11 +155,10 @@ func (d *DesyncerImpl) GetCookie() error {
 		d.URL = resp.Request.URL // incase of a redirect, update the URL
 	}
 
-	var res []string = make([]string, 0)
+	d.Hdr["Cookie"] = []string{}
 	for _, j := range jar.Cookies(d.URL) {
-		res = append(res, fmt.Sprintf("%s=%s", j.Name, j.Value))
+		d.Hdr["Cookie"] = append(d.Hdr["Cookie"], fmt.Sprintf("%s=%s", j.Name, j.Value))
 	}
-	d.Cookie = strings.Join(res, "; ")
 	return nil
 }
 

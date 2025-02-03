@@ -188,7 +188,7 @@ func (te *TE) tecl(p *h1.Payload) bool {
 			log.Info().
 				Str("endpoint", te.URL.String()).
 				Msgf("Potential TECL issue found - %s@%s://%s%s",
-					config.Glob.Method, te.URL.Scheme, te.URL.String(), te.URL.Path)
+					te.Method, te.URL.Scheme, te.URL.String(), te.URL.Path)
 			inner := fmt.Sprintf("GET /404 HTTP/1.1\r\nHost: %s\r\nContent-Length: 50\r\n\r\nX=", te.URL.Hostname())
 			tmp := fmt.Sprintf("1\r\nA\r\n%X\r\n%s\r\n0\r\n\r\n", len(inner), inner)
 			p.Body = tmp

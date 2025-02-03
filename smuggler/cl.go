@@ -101,7 +101,7 @@ func (d *CL) clte(p *h1.Payload) bool {
 			}
 			log.Info().
 				Str("endpoint", d.URL.String()).
-				Msgf("Potential CLTE issue found - %s@%s://%s%s", config.Glob.Method,
+				Msgf("Potential CLTE issue found - %s@%s://%s%s", d.Method,
 					d.URL.Scheme, d.URL.Host, d.URL.Path)
 			inner := "GET /admin/delete?username=carlos HTTP/1.1\r\nHost: localhost\r\nContent-Length: 50\r\n\r\n"
 			tmp := fmt.Sprintf("1\r\nA\r\n0\r\n\r\n%s", inner) // host would be taken from a url given by the user

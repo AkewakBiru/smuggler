@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 
-	"smuggler/config"
 	"smuggler/smuggler/h1"
 
 	"net/http"
@@ -28,9 +27,9 @@ type test struct {
 	want any
 }
 
-func buildReqLine(_test *test) *h1.Request {
+func buildReqLine(_test *test, method string) *h1.Request {
 	url := url.URL{Scheme: _test.scheme, Host: _test.host, Path: _test.path}
-	payload := h1.Payload{URL: url}
+	payload := h1.Payload{URL: url, Method: method}
 	if len(_test.body) > 0 {
 		payload.Body = _test.body
 		payload.Cl = len(payload.Body)
@@ -56,7 +55,7 @@ func buildReqHdr(lst []string) map[string]string {
 }
 
 func TestRoundTripGET(t *testing.T) {
-	config.Glob.Method = http.MethodGet
+	// config.Glob.Method = http.MethodGet
 	table := []test{
 		{
 			host:    "www.google.com",
@@ -87,7 +86,7 @@ func TestRoundTripGET(t *testing.T) {
 	tr := h1.Transport{}
 	for _, Case := range table {
 		t.Run(Case.host, func(t *testing.T) {
-			req := buildReqLine(&Case)
+			req := buildReqLine(&Case, http.MethodGet)
 			resp, err := tr.RoundTrip(req)
 			if err != nil {
 				t.Error(err)
@@ -102,7 +101,6 @@ func TestRoundTripGET(t *testing.T) {
 }
 
 func TestRoundTripPOST(t *testing.T) {
-	config.Glob.Method = http.MethodPost
 	table := []test{
 		{
 			host:    "www.google.com",
@@ -134,7 +132,7 @@ func TestRoundTripPOST(t *testing.T) {
 	tr := h1.Transport{}
 	for _, Case := range table {
 		t.Run(Case.host, func(t *testing.T) {
-			req := buildReqLine(&Case)
+			req := buildReqLine(&Case, http.MethodPost)
 			resp, err := tr.RoundTrip(req)
 			if err != nil {
 				t.Error(err)
@@ -174,7 +172,6 @@ func TestRoundTripPOST(t *testing.T) {
 }
 
 func TestRoundTripHEAD(t *testing.T) {
-	config.Glob.Method = http.MethodHead
 	table := []test{
 		{
 			host:    "www.google.com",
@@ -205,7 +202,7 @@ func TestRoundTripHEAD(t *testing.T) {
 	tr := h1.Transport{}
 	for _, Case := range table {
 		t.Run(Case.host, func(t *testing.T) {
-			req := buildReqLine(&Case)
+			req := buildReqLine(&Case, http.MethodPost)
 			resp, err := tr.RoundTrip(req)
 			if err != nil {
 				t.Error(err)
@@ -220,7 +217,6 @@ func TestRoundTripHEAD(t *testing.T) {
 }
 
 func TestRoundTripOPTIONS(t *testing.T) {
-	config.Glob.Method = http.MethodOptions
 	table := []test{
 		{
 			host:    "httpbin.org",
@@ -235,7 +231,7 @@ func TestRoundTripOPTIONS(t *testing.T) {
 	tr := h1.Transport{}
 	for _, Case := range table {
 		t.Run(Case.host, func(t *testing.T) {
-			req := buildReqLine(&Case)
+			req := buildReqLine(&Case, http.MethodOptions)
 			resp, err := tr.RoundTrip(req)
 			if err != nil {
 				t.Error(err)
@@ -250,7 +246,6 @@ func TestRoundTripOPTIONS(t *testing.T) {
 }
 
 func TestRoundTripReadTimeout(t *testing.T) {
-	config.Glob.Method = http.MethodGet
 	table := []test{
 		{
 			host:    "postman-echo.com",
@@ -265,7 +260,7 @@ func TestRoundTripReadTimeout(t *testing.T) {
 	tr := h1.Transport{}
 	for _, Case := range table {
 		t.Run(Case.host, func(t *testing.T) {
-			req := buildReqLine(&Case)
+			req := buildReqLine(&Case, http.MethodGet)
 			resp, err := tr.RoundTrip(req)
 			if err != nil {
 				if !errors.Is(err, context.DeadlineExceeded) {

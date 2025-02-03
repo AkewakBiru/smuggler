@@ -3,13 +3,13 @@ package h1
 import (
 	"fmt"
 	"net/url"
-	"smuggler/config"
 )
 
 const RN = "\r\n"
 
 type Payload struct {
 	URL    url.URL
+	Method string
 	Header map[string]string // a key value pair of HTTP headers
 	Body   string            // body of the request
 	Cl     int               // content-length
@@ -18,7 +18,7 @@ type Payload struct {
 
 func (p *Payload) ToString() string {
 	var final string
-	final = fmt.Sprintf("%s %s", config.Glob.Method, p.URL.EscapedPath())
+	final = fmt.Sprintf("%s %s", p.Method, p.URL.EscapedPath())
 	if len(p.URL.RawQuery) > 0 {
 		final += "?" + p.URL.RawQuery
 	}

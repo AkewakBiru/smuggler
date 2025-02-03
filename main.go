@@ -3,11 +3,13 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"smuggler/config"
 	"smuggler/smuggler"
 	"strings"
@@ -31,6 +33,15 @@ var (
 	conc     = flag.Bool("c", false, "enable `per-URL` concurrency. Could show a lot of false positives")
 	verbose  = flag.Bool("v", false, "show `verbose` output about the status of each test")
 )
+
+// per-host unique gadgets that must be sent for a request to work
+type hostInfo struct {
+	URL    string `json:"url"`
+	Method string `json:"method"`
+	Body   string `json:"body"`
+
+	Hdrs map[string][]string `json:"headers"`
+}
 
 func init() {
 	flag.Usage = func() {
@@ -92,7 +103,7 @@ func main() {
 	}
 	config.Glob.ExitEarly = *eos
 	config.Glob.Timeout = time.Duration(*timeout) * time.Second
-	config.Glob.Method = strings.ToUpper(strings.TrimSpace(*method))
+	// config.Glob.Method = strings.ToUpper(strings.TrimSpace(*method))
 
 	if *hosts == "" && chkStdIn() != nil {
 		log.Fatal().
@@ -110,36 +121,68 @@ func main() {
 	setPriority(strings.ToUpper(*priority))
 
 	file := getInput(*hosts)
+	defer file.Close()
+
+	procInput(file)
+}
+
+func procInput(file *os.File) {
+	config.Glob.Wg = sync.WaitGroup{}
 	pool, err := ants.NewPool(int(*poolSize))
 	if err != nil {
 		log.Fatal().Err(err).Msg("")
 	}
 	defer pool.Release()
 
+	var decoder *json.Decoder
+	if filepath.Ext(file.Name()) == ".json" {
+		decoder = json.NewDecoder(file)
+		if _, err := decoder.Token(); err != nil {
+			log.Error().Err(err).Msg("error getting json decoder token")
+			return
+		}
+
+		for decoder.More() {
+			config.Glob.Wg.Add(1)
+			var hinfo hostInfo
+			if err := decoder.Decode(&hinfo); err == nil {
+				scanHost(&hinfo)
+			}
+		}
+		config.Glob.Wg.Wait()
+		return
+	}
+
 	scanner := bufio.NewScanner(file)
-	config.Glob.Wg = sync.WaitGroup{}
 	for scanner.Scan() {
 		config.Glob.Wg.Add(1)
 		host := scanner.Text()
+		rec := hostInfo{
+			URL:    host,
+			Method: strings.ToUpper(strings.TrimSpace(*method)),
+		}
 		pool.Submit(func() {
-			scanHost(host)
+			scanHost(&rec)
 		})
 	}
 	config.Glob.Wg.Wait()
 }
 
-func scanHost(host string) {
+func scanHost(rec *hostInfo) {
 	defer config.Glob.Wg.Done()
 	var desyncr smuggler.DesyncerImpl
-	desyncr.Hdr = make(map[string]string)
+	desyncr.Hdr = rec.Hdrs
+	desyncr.Method = rec.Method
+	desyncr.Body = rec.Body
+
 	if config.Glob.Concurrent {
 		desyncr.Wg = sync.WaitGroup{}
 		desyncr.Ctx, desyncr.Cancel = context.WithCancel(context.Background())
 		desyncr.TestDone = make(chan struct{}, 1)
 	}
 
-	if err := desyncr.ParseURL(host); err != nil {
-		log.Error().Err(err).Msg(host)
+	if err := desyncr.ParseURL(rec.URL); err != nil {
+		log.Error().Err(err).Msg(rec.URL)
 		return
 	}
 
@@ -148,7 +191,7 @@ func scanHost(host string) {
 		return
 	}
 
-	if len(desyncr.Cookie) == 0 {
+	if len(desyncr.Hdr["Cookie"]) == 0 {
 		orig := *desyncr.URL
 		desyncr.URL.Path = "/" // check for cookies on URL root
 		if err := desyncr.GetCookie(); err != nil {

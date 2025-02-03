@@ -7,6 +7,15 @@ import (
 	"unicode"
 )
 
+func CloneMap(src map[string][]string) map[string][]string {
+	dst := make(map[string][]string)
+
+	for k, vv := range src {
+		dst[k] = append(dst[k], vv...)
+	}
+	return dst
+}
+
 func HexEscapeNonPrintable(s string) string {
 	var res string
 
