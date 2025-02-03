@@ -202,7 +202,7 @@ func TestRoundTripHEAD(t *testing.T) {
 	tr := h1.Transport{}
 	for _, Case := range table {
 		t.Run(Case.host, func(t *testing.T) {
-			req := buildReqLine(&Case, http.MethodPost)
+			req := buildReqLine(&Case, http.MethodHead)
 			resp, err := tr.RoundTrip(req)
 			if err != nil {
 				t.Error(err)

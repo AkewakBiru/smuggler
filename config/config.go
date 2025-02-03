@@ -25,8 +25,7 @@ const (
 )
 
 type Global struct {
-	Method string
-	Test   LEVEL
+	Test LEVEL
 
 	ExitEarly  bool
 	Concurrent bool

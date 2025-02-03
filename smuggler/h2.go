@@ -58,9 +58,7 @@ func (h *H2) run(t tests.PTYPE) bool {
 			} else {
 				req = h.newRequest(k, v)
 			}
-			if len(h.Cookie) > 0 {
-				req.Hdrs["Cookie"] = []string{h.Cookie}
-			}
+
 			if h.runTest(req, t) {
 				ctr++
 				if config.Glob.ExitEarly {
@@ -128,7 +126,7 @@ func (h *H2) runTest(req *h2.Request, t tests.PTYPE) bool {
 			t.Body(req, false)
 			log.Info().
 				Str("endpoint", h.URL.String()).
-				Msgf("Potential H2%s issue found - %s@%s://%s%s", t.String(), config.Glob.Method,
+				Msgf("Potential H2%s issue found - %s@%s://%s%s", t.String(), h.Method,
 					h.URL.Scheme, h.URL.Host, h.URL.Path)
 			// generate a report here
 			h.generateH2Report(req)
@@ -170,13 +168,9 @@ func (h *H2) generateH2Report(req *h2.Request) {
 func (h *H2) newRequest(key, val string) *h2.Request {
 	req := &h2.Request{
 		URL:    h.URL,
-		Method: config.Glob.Method,
+		Method: h.Method,
 	}
-	clear(req.Hdrs)
-	req.Hdrs = make(map[string][]string)
-	for k, v := range h.Hdr { // add host headers and values
-		req.Hdrs[k] = []string{v}
-	}
+	req.Hdrs = utils.CloneMap(h.Hdr)
 	if len(key) > 0 {
 		req.Payload = &h2.Payload{Key: key, Val: val}
 	}
