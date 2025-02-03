@@ -35,6 +35,8 @@ type Global struct {
 	Timeout time.Duration
 	Wg      sync.WaitGroup
 	DestURL *url.URL
+
+	Hdr map[string][]string // globally available headers
 }
 
 var Glob Global

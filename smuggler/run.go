@@ -96,13 +96,13 @@ func (d *DesyncerImpl) ParseURL(uri string) error {
 func (d *DesyncerImpl) NewPl(pl string) *h1.Payload {
 	payload := h1.Payload{HdrPl: pl, URL: *d.URL, Method: d.Method}
 	headers := make(map[string]string)
-	headers["User-Agent"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
-	headers["Connection"] = "close"
-	headers["Content-Type"] = "application/x-www-form-urlencoded"
-	headers["Host"] = d.URL.Host // this is causing a big issue // set it to just host if port is 80/443 else host:port
-
+	// headers["Content-Type"] = "application/x-www-form-urlencoded"
+	headers["Host"] = d.URL.Host         // this is causing a big issue // set it to just host if port is 80/443 else host:port
+	for k, vv := range config.Glob.Hdr { // headers included in all requests
+		headers[k] = vv[0]
+	}
 	payload.Header = headers
-	for k, v := range d.Hdr {
+	for k, v := range d.Hdr { // per-host headers
 		payload.Header[k] = strings.Join(v, "; ") // applies to cookies only for now
 	}
 
@@ -155,7 +155,9 @@ func (d *DesyncerImpl) GetCookie() error {
 		d.URL = resp.Request.URL // incase of a redirect, update the URL
 	}
 
-	d.Hdr["Cookie"] = []string{}
+	if len(d.Hdr["Cookie"]) == 0 {
+		d.Hdr["Cookie"] = []string{}
+	}
 	for _, j := range jar.Cookies(d.URL) {
 		d.Hdr["Cookie"] = append(d.Hdr["Cookie"], fmt.Sprintf("%s=%s", j.Name, j.Value))
 	}

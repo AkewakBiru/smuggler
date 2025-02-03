@@ -110,6 +110,13 @@ func main() {
 			Msg("File containing URLs must be present or a list of URLs must be passed from the stdin")
 	}
 
+	config.Glob.Hdr = make(map[string][]string)
+	config.Glob.Hdr["User-Agent"] =
+		[]string{"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"}
+	config.Glob.Hdr["Accept"] = []string{"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
+	config.Glob.Hdr["Accept-Language"] = []string{"en-US,en;q=0.5"}
+	config.Glob.Hdr["Accept-Encoding"] = []string{"gzip, deflate, br"}
+
 	config.Glob.DestURL, _ = url.Parse(*destUrl) // if nil, i will use the per-host URL
 	config.Glob.Concurrent = *conc
 	sl := []string{"CLTEH2", "CLH2TE", "TECLH2", "TEH2CL", "H2CLTE", "H2TECL"}
@@ -160,6 +167,7 @@ func procInput(file *os.File) {
 		rec := hostInfo{
 			URL:    host,
 			Method: strings.ToUpper(strings.TrimSpace(*method)),
+			Hdrs:   make(map[string][]string),
 		}
 		pool.Submit(func() {
 			scanHost(&rec)

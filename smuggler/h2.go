@@ -171,6 +171,9 @@ func (h *H2) newRequest(key, val string) *h2.Request {
 		Method: h.Method,
 	}
 	req.Hdrs = utils.CloneMap(h.Hdr)
+	for k, vv := range config.Glob.Hdr {
+		req.Hdrs[k] = append(req.Hdrs[k], vv...)
+	}
 	if len(key) > 0 {
 		req.Payload = &h2.Payload{Key: key, Val: val}
 	}
