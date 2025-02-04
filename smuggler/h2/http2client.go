@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -154,9 +155,11 @@ func (t Transport) RoundTrip(req *Request) (*http.Response, error) {
 		}
 	}
 
+	f, _ := os.OpenFile("/Users/akewakbiru/Desktop/sslkeys.log", os.O_WRONLY|os.O_APPEND, 0644)
 	cfg := tls.Config{
 		InsecureSkipVerify: true,
 		NextProtos:         []string{"h2"},
+		KeyLogWriter:       f,
 	}
 
 	var conn net.Conn
@@ -462,11 +465,7 @@ func (c *clientConn) streamByID(id uint32) *cstream {
 func (c *clientConn) encodeHeaders(req *Request) []byte {
 	c.writeHeader(":authority", req.URL.Host)
 	c.writeHeader(":method", req.Method)
-	if len(req.URL.Path) == 0 {
-		c.writeHeader(":path", "/")
-	} else {
-		c.writeHeader(":path", req.URL.Path)
-	}
+	c.writeHeader(":path", req.URL.RequestURI())
 	c.writeHeader(":scheme", req.URL.Scheme)
 	for k, vv := range req.Hdrs {
 		for _, v := range vv {

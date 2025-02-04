@@ -116,6 +116,10 @@ func main() {
 	config.Glob.Hdr["Accept"] = []string{"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
 	config.Glob.Hdr["Accept-Language"] = []string{"en-US,en;q=0.5"}
 	config.Glob.Hdr["Accept-Encoding"] = []string{"gzip, deflate, br"}
+	config.Glob.Hdr["Sec-Fetch-Dest"] = []string{"document"} // some requests with a browser User-Agent to website
+	config.Glob.Hdr["Sec-Fetch-Mode"] = []string{"navigate"} // don't work, and these headers help with that
+	config.Glob.Hdr["Sec-Fetch-Site"] = []string{"none"}
+	config.Glob.Hdr["Sec-Fetch-User"] = []string{"?1"}
 
 	config.Glob.DestURL, _ = url.Parse(*destUrl) // if nil, i will use the per-host URL
 	config.Glob.Concurrent = *conc
