@@ -18,6 +18,9 @@ func (te *TE) Run() bool {
 	if config.Glob.Concurrent {
 		defer te.Wg.Done()
 	}
+	if !te.H1Supported {
+		return false
+	}
 	return te.runTETE() || te.runTECL()
 }
 

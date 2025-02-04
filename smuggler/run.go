@@ -31,6 +31,7 @@ import (
 type Desyncer interface {
 	H1Test(*h1.Payload) (int, error)
 	GetCookie() error
+	getCookie(bool) error
 	RunTests() error
 	ParseURL(host string) error
 }
@@ -38,6 +39,9 @@ type Desyncer interface {
 // Implements the Desyncer interface and has the state of each host that is tested
 type DesyncerImpl struct {
 	Desyncer
+
+	H1Supported bool
+	H2Supported bool
 
 	URL    *url.URL
 	Body   string
@@ -112,9 +116,28 @@ func (d *DesyncerImpl) NewPl(pl string) *h1.Payload {
 	return &payload
 }
 
-// use Go's http client, because it follows redirects
 func (d *DesyncerImpl) GetCookie() error {
+	err := d.getCookie(true)
+	if err != nil {
+		d.H2Supported = false
+	}
+
+	err2 := d.getCookie(false)
+	if err2 != nil {
+		d.H2Supported = false
+	}
+
+	if err != nil && err2 != nil {
+		return err
+	}
+	return nil
+}
+
+// some sites start with h1.1, then after redirect, upgrade to h2 (disallow h1.1)
+// use Go's http client, because it follows redirects
+func (d *DesyncerImpl) getCookie(forceH2 bool) error {
 	t := &http.Transport{
+		ForceAttemptHTTP2: forceH2,
 		TLSClientConfig: &tls.Config{
 			InsecureSkipVerify: true,
 		},
@@ -142,11 +165,14 @@ func (d *DesyncerImpl) GetCookie() error {
 
 	req, _ := http.NewRequest(d.Method, d.URL.String(), nil)
 	req.Header = d.Hdr
+	for k, vv := range config.Glob.Hdr {
+		req.Header[k] = append(req.Header[k], vv...)
+	}
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
-
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("invalid endpoint: endpoint returned %d (%s)", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
@@ -159,7 +185,10 @@ func (d *DesyncerImpl) GetCookie() error {
 		d.Hdr["Cookie"] = []string{}
 	}
 	for _, j := range jar.Cookies(d.URL) {
-		d.Hdr["Cookie"] = append(d.Hdr["Cookie"], fmt.Sprintf("%s=%s", j.Name, j.Value))
+		cv := fmt.Sprintf("%s=%s", j.Name, j.Value)
+		if !utils.ValueExists(d.Hdr["Cookie"], cv) {
+			d.Hdr["Cookie"] = append(d.Hdr["Cookie"], cv)
+		}
 	}
 	return nil
 }

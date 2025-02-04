@@ -2,6 +2,8 @@ package utils
 
 import (
 	"fmt"
+	"maps"
+	"reflect"
 	"smuggler/smuggler/h2"
 	"strings"
 	"unicode"
@@ -14,6 +16,35 @@ func CloneMap(src map[string][]string) map[string][]string {
 		dst[k] = append(dst[k], vv...)
 	}
 	return dst
+}
+
+func ValueExists[T comparable](whole []T, val T) bool {
+	for _, v := range whole {
+		if v == val {
+			return true
+		}
+	}
+	return false
+}
+
+func MapValueExists[K comparable, V comparable](src map[K]any, val any) bool {
+	for vv := range maps.Values(src) {
+		switch t := vv.(type) {
+		case V:
+			if reflect.DeepEqual(t, val) {
+				return true
+			}
+		case []V:
+			for _, v := range t {
+				if reflect.DeepEqual(v, val) {
+					return true
+				}
+			}
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 func HexEscapeNonPrintable(s string) string {

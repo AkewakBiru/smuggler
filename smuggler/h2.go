@@ -25,6 +25,10 @@ func (h *H2) Run() bool {
 	if config.Glob.Concurrent {
 		defer h.Wg.Done()
 	}
+
+	if !h.H2Supported {
+		return false
+	}
 	// create a list of payloads and loop over them
 	priorityOrder := map[config.Priority][]tests.PTYPE{
 		config.H2CLTE: {tests.CL, tests.TE, tests.CRLF},

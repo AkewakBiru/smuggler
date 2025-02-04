@@ -1,6 +1,7 @@
 package smuggler
 
 import (
+	"smuggler/config"
 	"smuggler/smuggler/h2"
 	"smuggler/utils"
 
@@ -21,8 +22,19 @@ type tName struct {
 }
 
 func (t *Tunnel) Run() bool {
+	if config.Glob.Concurrent {
+		defer t.Wg.Done()
+	}
+
+	if !t.H2Supported {
+		return false
+	}
+
 	t.hdr = make(map[string][]string)
 	t.hdr = utils.CloneMap(t.Hdr)
+	for k, vv := range config.Glob.Hdr {
+		t.hdr[k] = append(t.hdr[k], vv...)
+	}
 
 	baseReq := func() *h2.Request {
 		url := *t.URL
@@ -88,6 +100,9 @@ func (t *Tunnel) Run() bool {
 
 	// might add more payloads (crlf sequence for waf evasion)
 	transport := h2.Transport{}
+	log.Info().
+		Str("endpoint", t.URL.String()).
+		Msg("Running H2 tunneling tests")
 	for _, v := range c {
 		req := baseReq()
 		v.modifyReq(req, v.test)
@@ -101,7 +116,7 @@ func (t *Tunnel) Run() bool {
 
 		if resp.StatusCode >= 400 {
 			log.Debug().
-				Str("endpoint", req.URL.String()).
+				Str("endpoint", t.URL.String()).
 				Msgf("response received with %s", resp.Status)
 			continue
 		}
@@ -109,12 +124,18 @@ func (t *Tunnel) Run() bool {
 		v.modifyReq(req, v.confirm)
 		resp, err = transport.RoundTrip(req)
 		if err != nil {
-			log.Debug().Err(err).Msg("")
+			log.Debug().
+				Str("endpoint", t.URL.String()).
+				Err(err).Msg("")
 			continue
 		}
 		resp.Body.Close()
+
+		if resp.StatusCode < 400 { // expect an error as Hostname is invalid
+			continue
+		}
 		log.Info().
-			Str("endpoint", req.URL.String()).
+			Str("endpoint", t.URL.String()).
 			Str("payload", utils.GetH2RequestSummary(req)).
 			// Str("status", resp.Status).
 			Int("status", resp.StatusCode).

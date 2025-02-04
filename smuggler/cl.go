@@ -18,6 +18,9 @@ func (cl *CL) Run() bool {
 	if config.Glob.Concurrent {
 		defer cl.Wg.Done()
 	}
+	if !cl.H1Supported {
+		return false
+	}
 	return cl.runCLTE() // for now
 }
 
