@@ -118,13 +118,13 @@ func (d *DesyncerImpl) NewPl(pl string) *h1.Payload {
 
 func (d *DesyncerImpl) GetCookie() error {
 	err := d.getCookie(true)
-	if err != nil {
-		d.H2Supported = false
+	if err == nil {
+		d.H2Supported = true
 	}
 
 	err2 := d.getCookie(false)
-	if err2 != nil {
-		d.H2Supported = false
+	if err2 == nil {
+		d.H1Supported = false
 	}
 
 	if err != nil && err2 != nil {
@@ -164,7 +164,10 @@ func (d *DesyncerImpl) getCookie(forceH2 bool) error {
 	}
 
 	req, _ := http.NewRequest(d.Method, d.URL.String(), nil)
-	req.Header = d.Hdr
+	for k, vv := range config.Glob.Hdr {
+		req.Header[k] = append(req.Header[k], vv...)
+	}
+
 	for k, vv := range config.Glob.Hdr {
 		req.Header[k] = append(req.Header[k], vv...)
 	}

@@ -3,6 +3,7 @@ package utils
 import (
 	"fmt"
 	"maps"
+	"net/url"
 	"reflect"
 	"smuggler/smuggler/h2"
 	"strings"
@@ -87,4 +88,12 @@ func GetH2RequestSummary(req *h2.Request) string {
 	}
 
 	return sb.String()
+}
+
+func AppendQueryParam(u *url.URL, val string) {
+	if len(u.Query()) > 0 {
+		u.RawQuery += "&" + val
+	} else {
+		u.RawQuery += val
+	}
 }

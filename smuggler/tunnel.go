@@ -33,7 +33,7 @@ func (t *Tunnel) Run() bool {
 	t.hdr = make(map[string][]string)
 	t.hdr = utils.CloneMap(t.Hdr)
 	for k, vv := range config.Glob.Hdr {
-		t.hdr[k] = append(t.hdr[k], vv...)
+		t.hdr[k] = append(t.hdr[k], vv[0])
 	}
 
 	baseReq := func() *h2.Request {
@@ -72,10 +72,10 @@ func (t *Tunnel) Run() bool {
 		},
 		{
 			name:    "path",
-			test:    "?a=b HTTP/1.1\r\nFoo: bar",
-			confirm: "?a=b HTTP/1.1\r\nHost: thisisadummyhost\r\n\r\n",
+			test:    "a=b HTTP/1.1\r\nFoo: bar",
+			confirm: "a=b HTTP/1.1\r\nHost: thisisadummyhost\r\n\r\n",
 			modifyReq: func(r *h2.Request, p string) {
-				r.URL.Path += p
+				utils.AppendQueryParam(r.URL, p)
 			},
 		},
 		{
@@ -106,10 +106,9 @@ func (t *Tunnel) Run() bool {
 	for _, v := range c {
 		req := baseReq()
 		v.modifyReq(req, v.test)
-
 		resp, err := transport.RoundTrip(req)
 		if err != nil {
-			log.Debug().Err(err).Str("endpoint", req.URL.String()).Msg("")
+			log.Debug().Err(err).Str("endpoint", req.URL.String()).Str("payload", v.test).Msg("")
 			continue
 		}
 		resp.Body.Close()
@@ -121,6 +120,7 @@ func (t *Tunnel) Run() bool {
 			continue
 		}
 
+		req = baseReq()
 		v.modifyReq(req, v.confirm)
 		resp, err = transport.RoundTrip(req)
 		if err != nil {
@@ -136,8 +136,6 @@ func (t *Tunnel) Run() bool {
 		}
 		log.Info().
 			Str("endpoint", t.URL.String()).
-			Str("payload", utils.GetH2RequestSummary(req)).
-			// Str("status", resp.Status).
 			Int("status", resp.StatusCode).
 			Msgf("%s injection might be interesting", v.name)
 	}
