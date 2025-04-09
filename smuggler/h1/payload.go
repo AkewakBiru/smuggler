@@ -27,6 +27,9 @@ func (p *Payload) ToString() string {
 	}
 	final += " HTTP/1.1\r\n"
 	for k, v := range p.Header {
+		if len(v) == 0 {
+			continue
+		}
 		final += fmt.Sprintf("%s: %s\r\n", k, v)
 	}
 	if len(p.HdrPl) > 0 {
