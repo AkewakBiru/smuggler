@@ -28,6 +28,15 @@ func ValueExists[T comparable](whole []T, val T) bool {
 	return false
 }
 
+func KeyExists(whole []string, part string) bool {
+	for _, v := range whole {
+		if strings.Compare(strings.Split(v, "=")[0], part) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func MapValueExists[K comparable, V comparable](src map[K]any, val any) bool {
 	for vv := range maps.Values(src) {
 		switch t := vv.(type) {

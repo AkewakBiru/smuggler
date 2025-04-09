@@ -124,7 +124,7 @@ func (d *DesyncerImpl) GetCookie() error {
 
 	err2 := d.getCookie(false)
 	if err2 == nil {
-		d.H1Supported = false
+		d.H1Supported = true
 	}
 
 	if err != nil && err2 != nil {
@@ -168,14 +168,12 @@ func (d *DesyncerImpl) getCookie(forceH2 bool) error {
 		req.Header[k] = append(req.Header[k], vv...)
 	}
 
-	for k, vv := range config.Glob.Hdr {
-		req.Header[k] = append(req.Header[k], vv...)
-	}
-
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
+	defer resp.Body.Close()
+
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("invalid endpoint: endpoint returned %d (%s)", resp.StatusCode, http.StatusText(resp.StatusCode))
 	}
@@ -189,6 +187,9 @@ func (d *DesyncerImpl) getCookie(forceH2 bool) error {
 	}
 	for _, j := range jar.Cookies(d.URL) {
 		cv := fmt.Sprintf("%s=%s", j.Name, j.Value)
+		if utils.KeyExists(d.Hdr["Cookie"], j.Name) {
+			continue
+		}
 		if !utils.ValueExists(d.Hdr["Cookie"], cv) {
 			d.Hdr["Cookie"] = append(d.Hdr["Cookie"], cv)
 		}
