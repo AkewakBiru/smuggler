@@ -11,6 +11,8 @@ import (
 	"net/url"
 
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 type Request struct {
@@ -57,7 +59,7 @@ func (t *Transport) RoundTrip(req *Request) (*http.Response, error) {
 		}
 		cc.conn = conn
 	} else {
-		conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%s", host, port), time.Second*2)
+		conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), time.Second*2)
 		if err != nil {
 			return nil, err
 		}
@@ -76,7 +78,9 @@ func (t *Transport) RoundTrip(req *Request) (*http.Response, error) {
 		return nil, err
 	}
 
-	if _, err := cc.conn.Write([]byte(req.Payload.ToString())); err != nil {
+	payload := req.Payload.ToString()
+	log.Trace().Msgf("\n%s", payload)
+	if _, err := cc.conn.Write([]byte(payload)); err != nil {
 		return nil, err
 	}
 

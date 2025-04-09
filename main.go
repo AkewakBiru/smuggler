@@ -32,6 +32,7 @@ var (
 	eos      = flag.Bool("e", true, "`exit` on success")
 	conc     = flag.Bool("c", false, "enable `per-URL` concurrency. Could show a lot of false positives")
 	verbose  = flag.Bool("v", false, "show `verbose` output about the status of each test")
+	trace    = flag.Bool("vv", false, "show `detailed_verbose` output about the request line of each test")
 )
 
 // per-host unique gadgets that must be sent for a request to work
@@ -100,6 +101,8 @@ func main() {
 	}
 	if *verbose {
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	} else if *trace {
+		zerolog.SetGlobalLevel(zerolog.TraceLevel)
 	}
 	config.Glob.ExitEarly = *eos
 	config.Glob.Timeout = time.Duration(*timeout) * time.Second
@@ -115,7 +118,7 @@ func main() {
 		[]string{"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"}
 	config.Glob.Hdr["Accept"] = []string{"text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"}
 	config.Glob.Hdr["Accept-Language"] = []string{"en-US,en;q=0.5"}
-	config.Glob.Hdr["Accept-Encoding"] = []string{"gzip, deflate, br"}
+	config.Glob.Hdr["Accept-Encoding"] = []string{"identity"}
 	config.Glob.Hdr["Sec-Fetch-Dest"] = []string{"document"} // some requests with a browser User-Agent to website
 	config.Glob.Hdr["Sec-Fetch-Mode"] = []string{"navigate"} // don't work, and these headers help with that
 	config.Glob.Hdr["Sec-Fetch-Site"] = []string{"none"}
